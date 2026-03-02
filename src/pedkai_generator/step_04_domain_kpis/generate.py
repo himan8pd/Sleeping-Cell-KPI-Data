@@ -1404,6 +1404,13 @@ class _PowerState:
     # AR(1)
     temp_ar: _AR1
     humidity_ar: _AR1
+    # DF-06: Mains outage persistence tracking.
+    # In reality a mains failure lasts 2-8 hours (until utility restores
+    # power or generator fuel runs out).  We track per-site remaining
+    # outage hours so that a site that loses mains at hour H is still on
+    # battery/generator at hours H+1, H+2, ... until the outage resolves.
+    mains_outage_remaining_hours: np.ndarray  # int, 0 = mains OK
+    cumulative_discharge_steps: np.ndarray  # int, progressive battery drain counter
 
 
 def _init_power(config: GeneratorConfig, rng: np.random.Generator) -> _PowerState | None:
@@ -1470,6 +1477,9 @@ def _init_power(config: GeneratorConfig, rng: np.random.Generator) -> _PowerStat
             rho=0.88,
             innov_std=1.0 * np.sqrt(1 - 0.88**2),
         ),
+        # DF-06: All sites start with mains OK (no ongoing outage)
+        mains_outage_remaining_hours=np.zeros(n, dtype=np.int32),
+        cumulative_discharge_steps=np.zeros(n, dtype=np.int32),
     )
 
 
@@ -1503,9 +1513,47 @@ def _power_hour(
         98.0,
     )
 
-    # Mains power — normally 1.0 (OK).  Very rare random outages (~0.05% per hour)
-    mains_fail_prob = 0.0005
-    mains_status = np.where(rng.random(n) < mains_fail_prob, 0.0, 1.0)
+    # ── DF-06: Persistent mains outage model ─────────────────
+    # In reality, a mains power failure lasts 2-8 hours (until the utility
+    # restores power or a generator runs out of fuel).  The previous i.i.d.
+    # model drew an independent Bernoulli each hour, so a site could lose
+    # mains at hour 5, have it back at hour 6, and lose it again at hour 7.
+    #
+    # New model:
+    #   - New outage onset: ~0.05% per site per hour (unchanged rate)
+    #   - Outage duration: geometric(p=0.25) + 2, giving mean ~6 hours,
+    #     range [2, ~15] — matching typical utility restoration times
+    #   - During an ongoing outage, mains_status stays 0.0
+    #   - Battery voltage progressively discharges each hour of outage
+
+    # Step 1: Decrement remaining outage hours for sites already in outage
+    still_in_outage = state.mains_outage_remaining_hours > 0
+    state.mains_outage_remaining_hours[still_in_outage] -= 1
+
+    # Step 2: Sites whose outage just expired → mains restored, reset discharge.
+    # Sites that had accumulated discharge but now have 0 remaining hours.
+    restored_mask = (state.mains_outage_remaining_hours == 0) & (state.cumulative_discharge_steps > 0)
+    state.cumulative_discharge_steps[restored_mask] = 0
+
+    # Step 3: New outage onset for sites NOT currently in outage
+    not_in_outage = state.mains_outage_remaining_hours == 0
+    new_fail_prob = 0.0005  # ~0.05% per site per hour
+    new_fail_draw = rng.random(n) < new_fail_prob
+    new_outage_mask = not_in_outage & new_fail_draw
+
+    n_new_outages = int(np.sum(new_outage_mask))
+    if n_new_outages > 0:
+        # Duration: geometric(p=0.25) + 2 → mean ~6h, min 2h, long tail to ~15h
+        durations = rng.geometric(p=0.25, size=n_new_outages) + 2
+        durations = np.clip(durations, 2, 16)
+        state.mains_outage_remaining_hours[new_outage_mask] = durations
+
+    # Step 4: Determine mains_status for this hour
+    mains_status = np.where(state.mains_outage_remaining_hours > 0, 0.0, 1.0)
+
+    # Step 5: Increment discharge counter for sites currently in outage
+    currently_out = state.mains_outage_remaining_hours > 0
+    state.cumulative_discharge_steps[currently_out] += 1
 
     # RF-13: Battery voltage uses -48V DC convention (ITU-T L.1200).
     # All telecom sites globally use negative polarity.  The magnitude is
@@ -1513,9 +1561,14 @@ def _power_hour(
     # Float charge ~-54V, nominal ~-48V, discharge cutoff ~-43V.
     battery_v = -state.battery_capacity_v.copy()  # Flip to negative polarity
     battery_v += rng.normal(0, 0.1, n)  # Small jitter around baseline
-    # Mains failure → battery starts discharging (magnitude decreases towards 0,
-    # i.e. voltage moves from -48V towards -43V, so we ADD +0.5V)
-    battery_v = np.where(mains_status < 0.5, battery_v + 0.5, battery_v)
+    # DF-06: Progressive battery discharge during multi-hour outages.
+    # Each hour of outage drops voltage by ~0.8V (towards -43V cutoff).
+    # After 6+ hours without generator, battery is near exhaustion.
+    discharge_v = state.cumulative_discharge_steps.astype(np.float64) * 0.8
+    # Generator halves discharge rate (keeps battery topped up partially)
+    discharge_v = np.where(state.has_generator, discharge_v * 0.5, discharge_v)
+    # Apply discharge: voltage moves from -48V towards -43V (add positive value)
+    battery_v = np.where(mains_status < 0.5, battery_v + discharge_v, battery_v)
     battery_v = np.clip(battery_v, -56.0, -40.0)
 
     # Battery charge percentage (48V system: 100% at ~-54V, 0% at ~-42V)

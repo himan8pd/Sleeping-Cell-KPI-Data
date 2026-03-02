@@ -929,7 +929,7 @@ def _generate_customer_batch(
 
     for i in range(batch_size):
         # Customer ID
-        cid = str(uuid.UUID(int=rng.integers(0, 2**128), version=4))
+        cid = str(uuid.UUID(bytes=rng.bytes(16), version=4))
         customer_ids.append(cid)
         tenant_ids.append(tenant_id)
 
