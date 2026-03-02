@@ -1,0 +1,2 @@
+[console_scripts]
+pedkai-generate = pedkai_generator.cli:main
