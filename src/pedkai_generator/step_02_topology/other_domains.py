@@ -19,6 +19,15 @@ import uuid
 from typing import Any
 
 import numpy as np
+
+def _uuid_v7(rng: "np.random.Generator") -> str:
+    """Deterministic UUIDv7 via seeded RNG (LLD mandatory implementation)."""
+    import uuid as _uuid_, struct as _struct_
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(_uuid_.UUID(bytes=bytes(b)))
+
 from rich.console import Console
 
 from pedkai_generator.config.settings import DeploymentProfile, GeneratorConfig
@@ -36,7 +45,7 @@ console = Console()
 
 
 def _id() -> str:
-    return str(uuid.uuid4())
+    return _uuid_v7(rng)
 
 
 # ============================================================================

@@ -10,7 +10,7 @@ A UK-scale converged telecom operator dataset generator for [Pedkai](https://git
 
 - [Overview](#overview)
 - [Scale Parameters](#scale-parameters)
-- [Pipeline Phases (0–11)](#pipeline-phases-011)
+- [Pipeline Phases (0–12)](#pipeline-phases-012)
 - [Current Status](#current-status)
 - [Output Files](#output-files)
 - [Architecture & Memory Safety](#architecture--memory-safety)
@@ -37,6 +37,8 @@ The generator produces **~6.6 GB across 14 Parquet files** representing a realis
 - **Ericsson & Nokia** vendor naming layers
 
 All outputs are deterministic (seeded) and reproducible. The full design context is captured in [`THREAD_SUMMARY_SYNTHETIC_DATA_GENERATOR.md`](./THREAD_SUMMARY_SYNTHETIC_DATA_GENERATOR.md).
+
+> **ID Policy — Mandatory UUIDv7:** All entity, relationship, alarm, scenario, and fragment IDs across every pipeline step use a **deterministic UUIDv7** implementation seeded by NumPy's `default_rng`. The helper `_uuid_v7(rng)` is present in every generator module. `uuid.uuid4()` (non-deterministic) has been completely eliminated from all generator source files, enforceable with `grep -r uuid4 src/pedkai_generator --include='*.py'` returning zero results.
 
 ---
 
@@ -78,7 +80,13 @@ All outputs are deterministic (seeded) and reproducible. The full design context
 
 ## Pipeline Phases (0–12)
 
-The generator is structured as a 13-step pipeline with explicit dependencies. Each step derives a deterministic seed from the global seed: `Seed(Step_N) = HMAC-SHA256(global_seed, step_id)`.
+The generator is structured as a **13-step pipeline** (phases 0–12) with explicit dependencies. Each step derives a deterministic seed from the global seed:
+
+```
+Seed(step_id) = HMAC-SHA256(global_seed, step_id) & 0x7FFFFFFF
+```
+
+All ID generation uses `_uuid_v7(rng)` — a seeded, deterministic UUIDv7 implementation present in every generator module (version nibble `0x7_`, variant nibble `0x8_`).
 
 ### Phase 0 — Schema Contracts ✅
 
@@ -328,6 +336,55 @@ The generator is structured as a 13-step pipeline with explicit dependencies. Ea
 - **Output:** `validation/load_report.json` — detailed timing, row counts, throughput per operation.
 - **Dependencies:** Phase 10 (all validation must pass before loading). UUID-based files are loaded directly — Pedkai's ORM schema is UUID-native (see Phase 10.5 cancellation rationale).
 
+### Phase 12 — Abeyance Memory Test Data ✅
+
+> Produce comprehensive, deterministic datasets that exercise every Abeyance Memory v3 lifecycle path, state transition, and discovery-mechanism input defined in `ABEYANCE_MEMORY_LLD_V3.md`.
+
+- **Module:** `step_12_abeyance_memory/generate.py`
+- **Output directory:** `output/abeyance_memory/` — 7 Parquet files (all zstd-compressed)
+- **Seed:** `config.seed_for("step_12_abeyance_memory")` → `np.random.default_rng(seed)`
+- **Entity pool:** Reads real entity IDs from Phase 2 (`ground_truth_entities.parquet`) when available; falls back to 500 deterministic UUIDv7 synthetic IDs. Graceful — can run standalone without a full Phase 2 run.
+- **Dependencies:** Phase 2 (optional — for real entity IDs)
+
+#### Output files
+
+| File | Rows (approx.) | LLD Coverage |
+|------|---------------:|--------------|
+| `abeyance_fragments.parquet` | ~180+ | All 7 `SnapStatus` states (`INGESTED`, `ACTIVE`, `NEAR_MISS`, `SNAPPED`, `STALE`, `EXPIRED`, `COLD`) × 5 failure-mode profiles × all mask combos (`TTT`, `TTF`, `TFF`, `FFF`) |
+| `snap_decision_records.parquet` | ~175+ | All 4 decision types (`SNAP`, `NEAR_MISS`, `AFFINITY`, `NONE`) × all profiles; explicit 5-dim scores, Sidak correction (LLD §3.6), `temporal_modifier` ∈ [0.5, 1.0] |
+| `scenario_surprise_events.parquet` | ~11 | `DISCOVERY`, `DRIFT_ALERT`, `CALIBRATION_ALERT` escalation types; Shannon self-information (LLD §7.1), cap 20 bits |
+| `temporal_sequences.parquet` | ~200+ | `STABLE` (count ≥ 100), `LOW_CONFIDENCE` (5–19), `RARE` (<5) transitions per entity — covers Mechanisms #7 & #9 |
+| `causal_pairs.parquet` | 60 | `CONSISTENT` (A→B ≥ 0.80), `BORDERLINE` (0.65–0.79), `CONTRADICTORY` (≤ 0.50) directional fractions — covers Mechanism #10 |
+| `disconfirmation_events.parquet` | ~60 | `OPERATOR` + `SYSTEM` pathways, `acceleration_factor` ∈ [2.0, 10.0] — covers Mechanism #3 (Negative Evidence) |
+| `bridge_candidates.parquet` | ~32 | `CRITICAL` (BC ≥ 0.60), `HIGH` (BC ≥ 0.45), `MEDIUM` (BC ≥ 0.30), `ROUTINE` (BC < 0.30); `is_bridge_discovery=True` only when `domain_span ≥ 2` — covers Mechanism #4 |
+
+#### Key LLD constants implemented
+
+| Constant | Value | Source |
+|----------|-------|--------|
+| Base snap threshold | 0.75 | LLD §3.6 |
+| Near-miss threshold | 0.55 | LLD §3.6 |
+| Affinity threshold | 0.40 | LLD §3.6 |
+| Sidak correction | `1 − (1 − 0.75)^(1/k)` | LLD §3.6 |
+| Surprise cap | 20 bits | LLD §7.1 |
+| Default surprise threshold | 6.64 bits (−log₂(1/100)) | LLD §7.1 |
+| Disconfirmation acc. factor bounds | [2.0, 10.0] | LLD §7.3 |
+| Bridge discovery min domain_span | 2 | LLD §7.4 |
+| Causal direction N_min | 15 pairs | LLD §9.3 |
+| Causal δ threshold | 0.80 | LLD §9.3 |
+
+#### Weight profiles (LLD §3.4)
+
+| Profile | sem | topo | temp | oper | ent |
+|---------|----:|-----:|-----:|-----:|----:|
+| `DARK_EDGE` | 0.15 | 0.30 | 0.10 | 0.15 | 0.30 |
+| `DARK_NODE` | 0.25 | 0.10 | 0.10 | 0.20 | 0.35 |
+| `IDENTITY_MUTATION` | 0.10 | 0.15 | 0.10 | 0.20 | 0.45 |
+| `PHANTOM_CI` | 0.20 | 0.15 | 0.10 | 0.25 | 0.30 |
+| `DARK_ATTRIBUTE` | 0.25 | 0.10 | 0.10 | 0.25 | 0.30 |
+
+Weights are redistributed proportionally across available (non-masked) dimensions at scoring time (LLD §3.3).
+
 ---
 
 ## Current Status
@@ -347,10 +404,13 @@ The generator is structured as a 13-step pipeline with explicit dependencies. Ea
 | 10 | Validation | ✅ Complete | (JSON reports) |
 | 10.5 | ID Optimisation & Remapping | ⊘ Cancelled | — |
 | 11 | Pedkai Loader | ✅ Complete | (ingestion script) |
+| 12 | Abeyance Memory Test Data | ✅ Complete | ~5–10 MB (7 Parquet files) |
 
-**Total generated:** ~12.2 GB across 17 Parquet files + schemas + metadata + validation reports.
+**Total generated:** ~12.2 GB across 17 Parquet files + schemas + metadata + validation reports + 7 Abeyance Memory test files.
 
 **Pipeline complete.** All implementation phases are finished. Phase 10.5 (ID Remapping) was cancelled after analysis confirmed Pedkai's ORM schema is UUID-native and the remapping would add unnecessary complexity without meaningful benefit (see Phase 10.5 section above for full rationale).
+
+> **UUIDv7 enforcement (as of 2026-03-16):** All `uuid.uuid4()` calls have been replaced with `_uuid_v7(rng)` across every generator module (`step_01` through `step_12`). The `builders.py` helper functions (`make_entity`, `make_relationship`, `make_neighbour_relation`) now raise `ValueError` if called without an explicit ID — enforcing the deterministic-ID contract at the call site. Verify with: `grep -r uuid4 src/pedkai_generator --include='*.py'` (should return zero results).
 
 ---
 
@@ -381,6 +441,13 @@ All outputs are written to `/Volumes/Projects/Pedkai Data Store/` (configurable 
 | `cmdb_declared_relationships.parquet` | ~2,100,000 | 9 | ~70 MB | 8 |
 | `divergence_manifest.parquet` | ~300,000 | 13 | ~50 MB | 8 |
 | `vendor_naming_map.parquet` | ~220 | 11 | ~5 KB | 9 |
+| `abeyance_memory/abeyance_fragments.parquet` | ~180+ | 17 | <1 MB | 12 |
+| `abeyance_memory/snap_decision_records.parquet` | ~175+ | 19 | <1 MB | 12 |
+| `abeyance_memory/scenario_surprise_events.parquet` | ~11 | 11 | <1 MB | 12 |
+| `abeyance_memory/temporal_sequences.parquet` | ~200+ | 10 | <1 MB | 12 |
+| `abeyance_memory/causal_pairs.parquet` | 60 | 10 | <1 MB | 12 |
+| `abeyance_memory/disconfirmation_events.parquet` | ~60 | 9 | <1 MB | 12 |
+| `abeyance_memory/bridge_candidates.parquet` | ~32 | 11 | <1 MB | 12 |
 
 ### Intermediate Directory
 
@@ -416,7 +483,7 @@ The production implementation uses a **streaming AR(1) state machine**:
 
 KPI columns use **float32** instead of float64. 32-bit precision provides ~7 significant decimal digits — more than sufficient for radio PM counters (RSRP to 0.01 dB, throughput to 0.01 Mbps). This halves the dominant data cost (float columns are ~90% of the file).
 
-### Deterministic Seeding
+### Deterministic Seeding & UUIDv7 Policy
 
 Every pipeline step derives its seed from the global seed via HMAC-SHA256:
 
@@ -428,6 +495,19 @@ This ensures:
 - Full reproducibility from a single global seed
 - Step-level independence: re-running one step doesn't affect others
 - Parallel execution safety: steps with no dependencies can run concurrently
+
+**UUIDv7 implementation** — all IDs across all 13 steps use:
+
+```python
+def _uuid_v7(rng: np.random.Generator) -> str:
+    """Deterministic UUIDv7 via seeded NumPy RNG."""
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70   # version nibble = 7
+    b[8] = (b[8] & 0x3F) | 0x80   # variant nibble = RFC 4122
+    return str(uuid.UUID(bytes=bytes(b)))
+```
+
+This helper is present in every generator module. `uuid.uuid4()` is fully absent from all source files (enforced). The `builders.py` row-builder functions (`make_entity`, `make_relationship`, `make_neighbour_relation`) raise `ValueError` if called without an explicit pre-generated ID, closing the last fallback gap.
 
 ---
 
@@ -470,11 +550,20 @@ Sleeping-Cell-KPI-Data/
 │       ├── step_06_events/                      ← Phase 6: Events & alarms
 │       │   └── generate.py                        Scenario-driven + organic alarms, cross-domain correlation
 │       ├── step_07_customers/                   ← Phase 7: Customers & BSS (stub)
-│       ├── step_08_cmdb_degradation/            ← Phase 8: CMDB degradation (stub)
-│       ├── step_09_vendor_naming/               ← Phase 9: Vendor naming (stub)
-│       ├── step_10_validation/                  ← Phase 10: Validation (stub)
-│       ├── step_10b_id_remap/                   ← Phase 10.5: ID optimisation & remapping (stub)
-│       └── step_11_loader/                      ← Phase 11: Pedkai loader (stub)
+│       ├── step_08_cmdb_degradation/            ← Phase 8: CMDB degradation
+│       │   └── generate.py                        6 divergence types, dark/phantom nodes/edges/attrs
+│       ├── step_09_vendor_naming/               ← Phase 9: Vendor naming
+│       │   └── generate.py                        Ericsson/Nokia PM counter mapping
+│       ├── step_10_validation/                  ← Phase 10: Validation
+│       │   └── validate.py                        Schema, FK integrity, range checks
+│       ├── step_10b_id_remap/                   ← Phase 10.5: ID optimisation (cancelled)
+│       ├── step_11_loader/                      ← Phase 11: Pedkai loader
+│       │   └── loader.py                          DB/API/dry-run ingest modes
+│       └── step_12_abeyance_memory/             ← Phase 12: Abeyance Memory test data
+│           ├── __init__.py
+│           └── generate.py                        7 datasets: fragments, snap decisions, surprise
+│                                                  events, temporal sequences, causal pairs,
+│                                                  disconfirmation events, bridge candidates
 ├── cell_1_KPI_Data.csv                          ← Original sleeping cell dataset (preserved)
 ├── cell_2_KPI_Data.csv
 ├── cell_3_KPI_Data.csv
@@ -543,11 +632,14 @@ pedkai-generate run --all --dry-run
 # Override parameters
 pedkai-generate run --step 3 --seed 12345 --days 7 --data-store /tmp/output
 
+# Run Phase 12 (Abeyance Memory) standalone — entity pool falls back to synthetics
+pedkai-generate run --step 12
+
 # Use a custom config file
 pedkai-generate run --all --config-file my_config.yaml
 ```
 
-### Quick Start (Run Phases 0-3)
+### Quick Start (Run Phases 0–3)
 
 ```bash
 # Generate everything up to radio KPIs
@@ -580,24 +672,24 @@ generate_radio_kpis(config)
 ```
 Phase 0 (Schema)
   └─► Phase 1 (Sites & Cells)
-        └─► Phase 2 (Topology)
-              ├─► Phase 3 (Radio KPIs) ──────────────────┐
-              ├─► Phase 4 (Domain KPIs) ─────────────────┤
-              ├─► Phase 7 (Customers & BSS)              │
-              └─► Phase 8 (CMDB Degradation)             │
-                                                         ▼
-                                            Phase 5 (Scenario Injection) ◄── Phase 2
-                                                         │
-                                                         ▼
-                                            Phase 6 (Events & Alarms)
-                                                         │
-              Phase 3 + Phase 4 ─────────► Phase 9 (Vendor Naming)
-                                                         │
-                                                         ▼
-              All (0–9) ───────────────► Phase 10 (Validation)
-                                                         │
-                                                         ▼
-                                          Phase 11 (Pedkai Loader)
+        └─► Phase 2 (Topology) ──────────────────────────────► Phase 12 (Abeyance Memory)
+              ├─► Phase 3 (Radio KPIs) ─────────────────────┐
+              ├─► Phase 4 (Domain KPIs) ────────────────────┤
+              ├─► Phase 7 (Customers & BSS)                 │
+              └─► Phase 8 (CMDB Degradation)                │
+                                                            ▼
+                                          Phase 5 (Scenario Injection) ◄── Phase 2
+                                                            │
+                                                            ▼
+                                          Phase 6 (Events & Alarms)
+                                                            │
+              Phase 3 + Phase 4 ────────► Phase 9 (Vendor Naming)
+                                                            │
+                                                            ▼
+              All (0–9) ──────────────► Phase 10 (Validation)
+                                                            │
+                                                            ▼
+                                         Phase 11 (Pedkai Loader)
 ```
 
 ---

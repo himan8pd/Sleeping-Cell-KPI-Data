@@ -94,6 +94,11 @@ STEP_REGISTRY: dict[int, tuple[str, str, str]] = {
         "load_into_pedkai",
         "Pedkai Loader — ingest all Parquet files into Pedkai's database",
     ),
+    12: (
+        "pedkai_generator.step_12_abeyance_memory.generate",
+        "generate_abeyance_memory_data",
+        "Abeyance Memory Test Data — fragments, snap decisions, surprise events, causal pairs, bridges",
+    ),
 }
 
 # Steps that can run in parallel (no dependency between them)
@@ -109,6 +114,7 @@ PARALLEL_GROUPS: list[list[int]] = [
     [9],  # Phase 9: vendor naming, needs KPIs
     [10],  # Phase 10: validation, needs everything
     [11],  # Phase 11: loader, needs everything
+    [12],  # Phase 12: Abeyance Memory test data — runs after topology (Step 2)
 ]
 
 # Dependency map: step -> list of steps it depends on
@@ -125,6 +131,7 @@ STEP_DEPENDENCIES: dict[int, list[int]] = {
     9: [3, 4],
     10: [1, 2, 3, 4, 5, 6, 7, 8, 9],
     11: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    12: [2],  # Needs topology for real entity IDs; gracefully falls back to synthetics
 }
 
 
@@ -284,9 +291,9 @@ def run(
 
     # ── Determine which steps to run ─────────────────────────
     if run_all:
-        requested = list(range(12))
+        requested = list(range(13))
     elif from_step is not None:
-        requested = list(range(from_step, 12))
+        requested = list(range(from_step, 13))
     elif steps:
         requested = list(steps)
     else:
@@ -296,7 +303,7 @@ def run(
     # Validate step numbers
     for s in requested:
         if s not in STEP_REGISTRY:
-            console.print(f"[bold red]Error:[/bold red] Unknown step {s}. Valid steps: 0-11.")
+            console.print(f"[bold red]Error:[/bold red] Unknown step {s}. Valid steps: 0-12.")
             raise SystemExit(1)
 
     execution_order = _resolve_execution_order(requested)

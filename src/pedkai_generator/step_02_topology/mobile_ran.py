@@ -33,6 +33,7 @@ from rich.console import Console
 from pedkai_generator.config.settings import RAT, GeneratorConfig
 from pedkai_generator.step_02_topology.builders import (
     TopologyAccumulator,
+    _uuid_v7,
     make_entity,
     make_relationship,
     props_json,
@@ -40,15 +41,6 @@ from pedkai_generator.step_02_topology.builders import (
 )
 
 console = Console()
-
-
-# ---------------------------------------------------------------------------
-# Helper: deterministic UUID from components (for reproducibility)
-# ---------------------------------------------------------------------------
-
-
-def _make_id() -> str:
-    return str(uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +141,7 @@ def build_mobile_ran_topology(
         n_sites += 1
 
         # --- CABINET ---
-        cabinet_id = _make_id()
+        cabinet_id = _uuid_v7(rng)
         cabinet = make_entity(
             entity_id=cabinet_id,
             tenant_id=tenant,
@@ -184,7 +176,7 @@ def build_mobile_ran_topology(
         n_rels += 1
 
         # --- POWER_SUPPLY ---
-        ps_id = _make_id()
+        ps_id = _uuid_v7(rng)
         ps = make_entity(
             entity_id=ps_id,
             tenant_id=tenant,
@@ -232,7 +224,7 @@ def build_mobile_ran_topology(
         n_rels += 1
 
         # --- BATTERY_BANK ---
-        bat_id = _make_id()
+        bat_id = _uuid_v7(rng)
         bat = make_entity(
             entity_id=bat_id,
             tenant_id=tenant,
@@ -269,7 +261,7 @@ def build_mobile_ran_topology(
         n_rels += 1
 
         # --- MAINS_CONNECTION ---
-        mains_id = _make_id()
+        mains_id = _uuid_v7(rng)
         mains = make_entity(
             entity_id=mains_id,
             tenant_id=tenant,
@@ -303,7 +295,7 @@ def build_mobile_ran_topology(
         n_rels += 1
 
         # --- CLIMATE_CONTROL ---
-        cc_id = _make_id()
+        cc_id = _uuid_v7(rng)
         cc = make_entity(
             entity_id=cc_id,
             tenant_id=tenant,
@@ -351,7 +343,7 @@ def build_mobile_ran_topology(
         n_rels += 1
 
         # --- TRANSMISSION_EQUIPMENT ---
-        tx_id = _make_id()
+        tx_id = _uuid_v7(rng)
         # Decide backhaul type: dense/urban → fibre, rural/deep_rural → microwave, suburban → mix
         if profile in ("rural", "deep_rural"):
             bh_type = "microwave"
@@ -391,7 +383,7 @@ def build_mobile_ran_topology(
         n_rels += 1
 
         # --- GPS_RECEIVER ---
-        gps_id = _make_id()
+        gps_id = _uuid_v7(rng)
         gps = make_entity(
             entity_id=gps_id,
             tenant_id=tenant,
@@ -430,7 +422,7 @@ def build_mobile_ran_topology(
             sector_cells[s].append(cell)
 
         # Track BBU (one per site, shared across sectors)
-        bbu_id = _make_id()
+        bbu_id = _uuid_v7(rng)
         bbu = make_entity(
             entity_id=bbu_id,
             tenant_id=tenant,
@@ -494,7 +486,7 @@ def build_mobile_ran_topology(
             cells_in_sector = sector_cells[sector_idx]
 
             # --- ANTENNA_SYSTEM (one per sector) ---
-            as_id = _make_id()
+            as_id = _uuid_v7(rng)
             as_entity = make_entity(
                 entity_id=as_id,
                 tenant_id=tenant,
@@ -526,7 +518,7 @@ def build_mobile_ran_topology(
             n_rels += 1
 
             # --- ANTENNA (physical panel — one per sector, shared across bands) ---
-            ant_id = _make_id()
+            ant_id = _uuid_v7(rng)
             # Use first cell's azimuth/tilt/height for the sector
             ref_cell = cells_in_sector[0]
             ant = make_entity(
@@ -568,7 +560,7 @@ def build_mobile_ran_topology(
             n_rels += 1
 
             # --- FEEDER_CABLE (one per sector) ---
-            feeder_id = _make_id()
+            feeder_id = _uuid_v7(rng)
             feeder = make_entity(
                 entity_id=feeder_id,
                 tenant_id=tenant,
@@ -606,7 +598,7 @@ def build_mobile_ran_topology(
                 bands_in_sector.add(cell["band"])
 
             for band_name in sorted(bands_in_sector):
-                rru_id = _make_id()
+                rru_id = _uuid_v7(rng)
                 rru = make_entity(
                     entity_id=rru_id,
                     tenant_id=tenant,
@@ -655,7 +647,7 @@ def build_mobile_ran_topology(
                 if cell_type == "LTE_CELL":
                     # Create eNodeB if not yet created for this site
                     if enodeb_id is None:
-                        enodeb_id = _make_id()
+                        enodeb_id = _uuid_v7(rng)
                         enb = make_entity(
                             entity_id=enodeb_id,
                             tenant_id=tenant,
@@ -748,7 +740,7 @@ def build_mobile_ran_topology(
                 elif cell_type == "NR_CELL":
                     # Create gNodeB and CU/DU split if not yet created for this site
                     if gnodeb_id is None:
-                        gnodeb_id = _make_id()
+                        gnodeb_id = _uuid_v7(rng)
                         gnb = make_entity(
                             entity_id=gnodeb_id,
                             tenant_id=tenant,
@@ -790,7 +782,7 @@ def build_mobile_ran_topology(
                         n_rels += 1
 
                         # CU/DU split entities
-                        gnodeb_du_id = _make_id()
+                        gnodeb_du_id = _uuid_v7(rng)
                         du = make_entity(
                             entity_id=gnodeb_du_id,
                             tenant_id=tenant,
@@ -821,7 +813,7 @@ def build_mobile_ran_topology(
                         )
                         n_rels += 1
 
-                        gnodeb_cu_cp_id = _make_id()
+                        gnodeb_cu_cp_id = _uuid_v7(rng)
                         cu_cp = make_entity(
                             entity_id=gnodeb_cu_cp_id,
                             tenant_id=tenant,
@@ -852,7 +844,7 @@ def build_mobile_ran_topology(
                         )
                         n_rels += 1
 
-                        gnodeb_cu_up_id = _make_id()
+                        gnodeb_cu_up_id = _uuid_v7(rng)
                         cu_up = make_entity(
                             entity_id=gnodeb_cu_up_id,
                             tenant_id=tenant,

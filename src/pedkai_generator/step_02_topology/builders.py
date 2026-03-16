@@ -15,6 +15,14 @@ from typing import Any
 
 import numpy as np
 
+
+def _uuid_v7(rng: np.random.Generator) -> str:
+    """Deterministic UUIDv7 via seeded RNG."""
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(uuid.UUID(bytes=bytes(b)))
+
 # ---------------------------------------------------------------------------
 # Entity & Relationship row builders
 # ---------------------------------------------------------------------------
@@ -57,10 +65,12 @@ def make_entity(
     """
     Build a single entity row dict conforming to ground_truth_entities contract.
 
-    If entity_id is not provided, a new UUID v4 is generated.
+    entity_id must be supplied (generated via _uuid_v7(rng) at the call site).
     """
+    if not entity_id:
+        raise ValueError("entity_id is required — generate with _uuid_v7(rng) at the call site")
     return {
-        "entity_id": entity_id or str(uuid.uuid4()),
+        "entity_id": entity_id,
         "tenant_id": tenant_id,
         "entity_type": entity_type,
         "name": name,
@@ -109,10 +119,12 @@ def make_relationship(
     """
     Build a single relationship row dict conforming to ground_truth_relationships contract.
 
-    If relationship_id is not provided, a new UUID v4 is generated.
+    relationship_id must be supplied (generated via _uuid_v7(rng) at the call site).
     """
+    if not relationship_id:
+        raise ValueError("relationship_id is required — generate with _uuid_v7(rng) at the call site")
     return {
-        "relationship_id": relationship_id or str(uuid.uuid4()),
+        "relationship_id": relationship_id,
         "tenant_id": tenant_id,
         "from_entity_id": from_entity_id,
         "from_entity_type": from_entity_type,
@@ -145,9 +157,13 @@ def make_neighbour_relation(
     """
     Build a single neighbour relation row dict conforming to
     neighbour_relations contract.
+
+    relation_id must be supplied (generated via _uuid_v7(rng) at the call site).
     """
+    if not relation_id:
+        raise ValueError("relation_id is required — generate with _uuid_v7(rng) at the call site")
     return {
-        "relation_id": relation_id or str(uuid.uuid4()),
+        "relation_id": relation_id,
         "tenant_id": tenant_id,
         "from_cell_id": from_cell_id,
         "from_cell_rat": from_cell_rat,
@@ -170,9 +186,9 @@ def make_neighbour_relation(
 # ---------------------------------------------------------------------------
 
 
-def generate_uuids(n: int) -> list[str]:
-    """Generate n UUID v4 strings."""
-    return [str(uuid.uuid4()) for _ in range(n)]
+def generate_uuids(n: int, rng: np.random.Generator) -> list[str]:
+    """Generate n deterministic UUIDv7 strings via seeded RNG."""
+    return [_uuid_v7(rng) for _ in range(n)]
 
 
 # ---------------------------------------------------------------------------

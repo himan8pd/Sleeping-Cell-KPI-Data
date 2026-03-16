@@ -24,6 +24,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+
+def _uuid_v7(rng: "np.random.Generator") -> str:
+    """Deterministic UUIDv7 via seeded RNG (LLD mandatory implementation)."""
+    import uuid as _uuid_, struct as _struct_
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(_uuid_.UUID(bytes=bytes(b)))
+
 import polars as pl
 from rich.console import Console
 from rich.progress import track
@@ -279,7 +288,7 @@ def _generate_sites(config: GeneratorConfig, rng: np.random.Generator) -> pl.Dat
             base_rev = revenue_base.get(chosen_profile, 30_000.0)
             revenue = float(rng.lognormal(np.log(base_rev), 0.4))
 
-            site_id = str(uuid.uuid4())
+            site_id = _uuid_v7(rng)
 
             all_rows.append(
                 {
@@ -451,7 +460,7 @@ def _generate_cells(
             if rat == RAT.LTE:
                 # Single LTE cell
                 band = _pick_band(rng, RAT.LTE, profile)
-                cell_id = str(uuid.uuid4())
+                cell_id = _uuid_v7(rng)
                 name_prefix = "CELL-LTE"
                 all_rows.append(
                     _build_cell_row(
@@ -486,7 +495,7 @@ def _generate_cells(
                 # EN-DC: Two logical cell-layers
                 # 1) LTE anchor leg
                 lte_anchor_band = _pick_lte_anchor_band(rng, profile)
-                lte_anchor_id = str(uuid.uuid4())
+                lte_anchor_id = _uuid_v7(rng)
                 all_rows.append(
                     _build_cell_row(
                         cell_id=lte_anchor_id,
@@ -518,7 +527,7 @@ def _generate_cells(
 
                 # 2) NR SCG leg
                 nr_band = _pick_band(rng, RAT.NR_NSA, profile)
-                nr_scg_id = str(uuid.uuid4())
+                nr_scg_id = _uuid_v7(rng)
                 all_rows.append(
                     _build_cell_row(
                         cell_id=nr_scg_id,
@@ -551,7 +560,7 @@ def _generate_cells(
             elif rat == RAT.NR_SA:
                 # Single NR SA cell
                 band = _pick_band(rng, RAT.NR_SA, profile)
-                cell_id = str(uuid.uuid4())
+                cell_id = _uuid_v7(rng)
                 all_rows.append(
                     _build_cell_row(
                         cell_id=cell_id,

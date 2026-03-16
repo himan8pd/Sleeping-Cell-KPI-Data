@@ -54,6 +54,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+def _uuid_v7(rng: "np.random.Generator") -> str:
+    """Deterministic UUIDv7 via seeded RNG (LLD mandatory implementation)."""
+    import uuid as _uuid_, struct as _struct_
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(_uuid_.UUID(bytes=bytes(b)))
+
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -309,7 +318,7 @@ def _mutate_external_id(external_id: str | None, rng: np.random.Generator) -> st
     """
     if external_id is None or len(external_id) < 4:
         # Generate a completely synthetic corrupted ID
-        return f"CORRUPT-{uuid.uuid4().hex[:12].upper()}"
+        return f"CORRUPT-{_uuid_v7(rng)[:12].upper()}"
 
     eid = str(external_id)
     mutation_type = rng.integers(0, 5)
@@ -384,7 +393,7 @@ def _generate_phantom_entity(
       - Same site_id (it appears to be at the same site)
     """
     phantom = dict(template_entity)  # shallow copy
-    phantom_id = str(uuid.uuid4())
+    phantom_id = _uuid_v7(rng)
     phantom["entity_id"] = phantom_id
 
     # Generate a plausible name
@@ -463,7 +472,7 @@ def _generate_phantom_relationship(
         domain = _infer_domain(from_type, to_type)
 
         return {
-            "relationship_id": str(uuid.uuid4()),
+            "relationship_id": _uuid_v7(rng),
             "tenant_id": tenant_id,
             "from_entity_id": from_id,
             "from_entity_type": from_type,
@@ -622,7 +631,7 @@ def _apply_dark_nodes(
         dark_entity_ids.add(eid)
         manifest_rows.append(
             {
-                "divergence_id": str(uuid.uuid4()),
+                "divergence_id": _uuid_v7(rng),
                 "tenant_id": tenant_id,
                 "divergence_type": DIV_DARK_NODE,
                 "entity_or_relationship": "entity",
@@ -673,7 +682,7 @@ def _apply_phantom_nodes(
 
         manifest_rows.append(
             {
-                "divergence_id": str(uuid.uuid4()),
+                "divergence_id": _uuid_v7(rng),
                 "tenant_id": tenant_id,
                 "divergence_type": DIV_PHANTOM_NODE,
                 "entity_or_relationship": "entity",
@@ -726,7 +735,7 @@ def _apply_dark_edges(
         dark_rel_ids.add(rid)
         manifest_rows.append(
             {
-                "divergence_id": str(uuid.uuid4()),
+                "divergence_id": _uuid_v7(rng),
                 "tenant_id": tenant_id,
                 "divergence_type": DIV_DARK_EDGE,
                 "entity_or_relationship": "relationship",
@@ -793,7 +802,7 @@ def _apply_phantom_edges(
 
         manifest_rows.append(
             {
-                "divergence_id": str(uuid.uuid4()),
+                "divergence_id": _uuid_v7(rng),
                 "tenant_id": tenant_id,
                 "divergence_type": DIV_PHANTOM_EDGE,
                 "entity_or_relationship": "relationship",
@@ -885,7 +894,7 @@ def _apply_dark_attributes(
 
             manifest_rows.append(
                 {
-                    "divergence_id": str(uuid.uuid4()),
+                    "divergence_id": _uuid_v7(rng),
                     "tenant_id": tenant_id,
                     "divergence_type": DIV_DARK_ATTRIBUTE,
                     "entity_or_relationship": "entity",
@@ -957,7 +966,7 @@ def _apply_identity_mutations(
 
         manifest_rows.append(
             {
-                "divergence_id": str(uuid.uuid4()),
+                "divergence_id": _uuid_v7(rng),
                 "tenant_id": tenant_id,
                 "divergence_type": DIV_IDENTITY_MUTATION,
                 "entity_or_relationship": "entity",

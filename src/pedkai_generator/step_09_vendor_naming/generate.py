@@ -41,6 +41,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+def _uuid_v7(rng: "np.random.Generator") -> str:
+    """Deterministic UUIDv7 via seeded RNG (LLD mandatory implementation)."""
+    import uuid as _uuid_, struct as _struct_
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(_uuid_.UUID(bytes=bytes(b)))
+
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 from rich.console import Console
@@ -1196,7 +1205,7 @@ def _build_mapping_rows(
         # Ericsson row
         rows.append(
             {
-                "mapping_id": str(uuid.uuid4()),
+                "mapping_id": _uuid_v7(rng),
                 "tenant_id": tenant_id,
                 "internal_name": internal_name,
                 "domain": domain,
@@ -1213,7 +1222,7 @@ def _build_mapping_rows(
         # Nokia row
         rows.append(
             {
-                "mapping_id": str(uuid.uuid4()),
+                "mapping_id": _uuid_v7(rng),
                 "tenant_id": tenant_id,
                 "internal_name": internal_name,
                 "domain": domain,

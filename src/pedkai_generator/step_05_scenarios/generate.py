@@ -46,6 +46,15 @@ from pathlib import Path
 from typing import Any, Union
 
 import numpy as np
+
+def _uuid_v7(rng: "np.random.Generator") -> str:
+    """Deterministic UUIDv7 via seeded RNG (LLD mandatory implementation)."""
+    import uuid as _uuid_, struct as _struct_
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(_uuid_.UUID(bytes=bytes(b)))
+
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -2217,7 +2226,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         start_h, end_h, ramp_up, ramp_down = _pick_duration(SCENARIO_SLEEPING_CELL, rng, total_hours)
         sev = _pick_severity(SCENARIO_SLEEPING_CELL, rng)
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_SLEEPING_CELL,
             severity=sev,
             primary_entity_id=cell_id,
@@ -2241,7 +2250,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         start_h, end_h, ramp_up, ramp_down = _pick_duration(SCENARIO_CONGESTION, rng, total_hours)
         sev = _pick_severity(SCENARIO_CONGESTION, rng)
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_CONGESTION,
             severity=sev,
             primary_entity_id=cell_id,
@@ -2265,7 +2274,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         sev = _pick_severity(SCENARIO_COVERAGE_HOLE, rng)
         primary = cluster[0]
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_COVERAGE_HOLE,
             severity=sev,
             primary_entity_id=primary,
@@ -2291,7 +2300,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         start_h, end_h, ramp_up, ramp_down = _pick_duration(SCENARIO_HARDWARE_FAULT, rng, total_hours)
         sev = _pick_severity(SCENARIO_HARDWARE_FAULT, rng)
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_HARDWARE_FAULT,
             severity=sev,
             primary_entity_id=cell_id,
@@ -2314,7 +2323,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         start_h, end_h, ramp_up, ramp_down = _pick_duration(SCENARIO_INTERFERENCE, rng, total_hours)
         sev = _pick_severity(SCENARIO_INTERFERENCE, rng)
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_INTERFERENCE,
             severity=sev,
             primary_entity_id=cell_id,
@@ -2366,7 +2375,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         ][:20]  # Cap cascade chain detail to keep manifest manageable
 
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_TRANSPORT_FAILURE,
             severity=sev,
             primary_entity_id=link_id,
@@ -2409,7 +2418,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         ][:30]
 
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_POWER_FAILURE,
             severity=sev,
             primary_entity_id=site_id,
@@ -2464,7 +2473,7 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         ][:30]
 
         scenario = ScenarioInstance(
-            scenario_id=str(uuid.uuid4()),
+            scenario_id=_uuid_v7(rng),
             scenario_type=SCENARIO_FIBRE_CUT,
             severity=sev,
             primary_entity_id=fibre_id,

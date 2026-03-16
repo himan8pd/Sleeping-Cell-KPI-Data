@@ -47,6 +47,15 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+def _uuid_v7(rng: "np.random.Generator") -> str:
+    """Deterministic UUIDv7 via seeded RNG (LLD mandatory implementation)."""
+    import uuid as _uuid_, struct as _struct_
+    b = bytearray(rng.bytes(16))
+    b[6] = (b[6] & 0x0F) | 0x70
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(_uuid_.UUID(bytes=bytes(b)))
+
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -893,7 +902,7 @@ def _generate_scenario_alarms(
             continue
 
         # Correlation group for cross-domain alarm chains
-        correlation_group = str(uuid.uuid4())
+        correlation_group = _uuid_v7(rng)
 
         # Classify affected entities by type
         primary_info = entity_lookup.get(primary_entity_id, {})
@@ -1223,7 +1232,7 @@ def _emit_alarms_for_entities(
 
             alarms_out.append(
                 AlarmRow(
-                    alarm_id=str(uuid.uuid4()),
+                    alarm_id=_uuid_v7(rng),
                     tenant_id=tenant_id,
                     entity_id=eid,
                     entity_type=etype,
@@ -1360,7 +1369,7 @@ def _generate_organic_alarms(
 
             organic_alarms.append(
                 AlarmRow(
-                    alarm_id=str(uuid.uuid4()),
+                    alarm_id=_uuid_v7(rng),
                     tenant_id=tenant_id,
                     entity_id=eid,
                     entity_type=etype,
