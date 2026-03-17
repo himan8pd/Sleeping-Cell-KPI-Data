@@ -14,3 +14,13 @@ build/
 .vscode/
 *.swp
 *.swo
+
+# Temp data store
+tmp_pedkai_data/
+*.csv
+
+# Virtual environment
+venv/
+.venv/
+.pytest_cache/
+

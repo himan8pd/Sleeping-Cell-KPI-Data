@@ -10,7 +10,7 @@ These contracts serve three purposes:
   3. Generation guidance — downstream steps reference these to ensure
      they produce conforming data.
 
-The 14 output files (from THREAD_SUMMARY Section 7):
+The 21 output files (from THREAD_SUMMARY Section 7):
   1.  ground_truth_entities.parquet
   2.  ground_truth_relationships.parquet
   3.  cmdb_declared_entities.parquet
@@ -25,6 +25,13 @@ The 14 output files (from THREAD_SUMMARY Section 7):
   12. events_alarms.parquet
   13. customers_bss.parquet
   14. neighbour_relations.parquet
+  15. abeyance_fragments.parquet
+  16. snap_decision_records.parquet
+  17. scenario_surprise_events.parquet
+  18. temporal_sequences.parquet
+  19. causal_pairs.parquet
+  20. disconfirmation_events.parquet
+  21. bridge_candidates.parquet
 """
 
 from __future__ import annotations
@@ -1679,6 +1686,104 @@ def _neighbour_relations_contract() -> FileContract:
 # ============================================================================
 
 
+def _abeyance_fragments_contract() -> FileContract:
+    from pedkai_generator.step_12_abeyance_memory.generate import FRAGMENT_SCHEMA
+
+    return FileContract(
+        filename="abeyance_fragments.parquet",
+        description="Abeyance Memory fragments used for snap decisions + validation.",
+        expected_row_count_approx=10_000,
+        columns=[
+            ColumnContract(f.name, f.type, nullable=f.nullable)
+            for f in FRAGMENT_SCHEMA
+        ],
+    )
+
+
+def _snap_decision_records_contract() -> FileContract:
+    from pedkai_generator.step_12_abeyance_memory.generate import SNAP_DECISION_SCHEMA
+
+    return FileContract(
+        filename="snap_decision_records.parquet",
+        description="Snap decision records used for Abeyance Memory scoring and discovery.",
+        expected_row_count_approx=10_000,
+        columns=[
+            ColumnContract(f.name, f.type, nullable=f.nullable)
+            for f in SNAP_DECISION_SCHEMA
+        ],
+    )
+
+
+def _scenario_surprise_events_contract() -> FileContract:
+    from pedkai_generator.step_12_abeyance_memory.generate import SURPRISE_SCHEMA
+
+    return FileContract(
+        filename="scenario_surprise_events.parquet",
+        description="Surprise event inputs for Abeyance Memory escalation testing.",
+        expected_row_count_approx=1_000,
+        columns=[
+            ColumnContract(f.name, f.type, nullable=f.nullable)
+            for f in SURPRISE_SCHEMA
+        ],
+    )
+
+
+def _temporal_sequences_contract() -> FileContract:
+    from pedkai_generator.step_12_abeyance_memory.generate import TEMPORAL_SEQ_SCHEMA
+
+    return FileContract(
+        filename="temporal_sequences.parquet",
+        description="Temporal sequence logs used for expectation violation modelling.",
+        expected_row_count_approx=10_000,
+        columns=[
+            ColumnContract(f.name, f.type, nullable=f.nullable)
+            for f in TEMPORAL_SEQ_SCHEMA
+        ],
+    )
+
+
+def _causal_pairs_contract() -> FileContract:
+    from pedkai_generator.step_12_abeyance_memory.generate import CAUSAL_PAIR_SCHEMA
+
+    return FileContract(
+        filename="causal_pairs.parquet",
+        description="Causal direction test data used for mechanism evaluation.",
+        expected_row_count_approx=2_000,
+        columns=[
+            ColumnContract(f.name, f.type, nullable=f.nullable)
+            for f in CAUSAL_PAIR_SCHEMA
+        ],
+    )
+
+
+def _disconfirmation_events_contract() -> FileContract:
+    from pedkai_generator.step_12_abeyance_memory.generate import DISCONFIRMATION_SCHEMA
+
+    return FileContract(
+        filename="disconfirmation_events.parquet",
+        description="Negative evidence batches used to validate disconfirmation handling.",
+        expected_row_count_approx=2_000,
+        columns=[
+            ColumnContract(f.name, f.type, nullable=f.nullable)
+            for f in DISCONFIRMATION_SCHEMA
+        ],
+    )
+
+
+def _bridge_candidates_contract() -> FileContract:
+    from pedkai_generator.step_12_abeyance_memory.generate import BRIDGE_SCHEMA
+
+    return FileContract(
+        filename="bridge_candidates.parquet",
+        description="Bridge candidate node records used for bridge detection testing.",
+        expected_row_count_approx=2_000,
+        columns=[
+            ColumnContract(f.name, f.type, nullable=f.nullable)
+            for f in BRIDGE_SCHEMA
+        ],
+    )
+
+
 def get_all_contracts() -> dict[str, FileContract]:
     """
     Return a dict mapping filename → FileContract for all 14 output files.
@@ -1698,6 +1803,14 @@ def get_all_contracts() -> dict[str, FileContract]:
         _events_alarms_contract(),
         _customers_bss_contract(),
         _neighbour_relations_contract(),
+        # Abeyance Memory contracts
+        _abeyance_fragments_contract(),
+        _snap_decision_records_contract(),
+        _scenario_surprise_events_contract(),
+        _temporal_sequences_contract(),
+        _causal_pairs_contract(),
+        _disconfirmation_events_contract(),
+        _bridge_candidates_contract(),
     ]
     return {c.filename: c for c in contracts}
 

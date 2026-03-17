@@ -227,6 +227,29 @@ class ScenarioInjectionConfig:
     fibre_cut_rate: float = 0.0005  # 0.05% of fibre links
 
 
+@dataclass
+class AbeyanceMemoryConfig:
+    """Configuration to scale Abeyance Memory fixture generation."""
+
+    # Fraction of the entity pool to generate fragments for (0.0-1.0).
+    # Use 1.0 to generate a fragment per entity.
+    fragment_fraction: float = 0.01
+
+    # Minimum number of fragments to always generate (ensures coverage).
+    min_fragments: int = 180
+
+    # Optional hard cap to avoid runaway outputs.
+    max_fragments: int | None = None
+
+    # Override values (0 = auto-scale based on fragment count)
+    snap_decisions_per_profile: int = 0
+    causal_pairs_per_category: int = 0
+    disconfirmation_max: int = 0
+    bridge_candidates_per_severity: int = 0
+    surprise_events_total: int = 0
+    temporal_entity_count: int = 0
+
+
 # ---------------------------------------------------------------------------
 # LTE Band definitions
 # ---------------------------------------------------------------------------
@@ -465,6 +488,9 @@ class GeneratorConfig:
     cmdb_degradation: CMDBDegradationConfig = field(default_factory=CMDBDegradationConfig)
     scenario_injection: ScenarioInjectionConfig = field(default_factory=ScenarioInjectionConfig)
 
+    # Step 12: Abeyance Memory test data scaling
+    abeyance_memory: AbeyanceMemoryConfig = field(default_factory=AbeyanceMemoryConfig)
+
     # Output paths
     paths: OutputPathConfig = field(default_factory=OutputPathConfig)
 
@@ -572,6 +598,31 @@ class GeneratorConfig:
                 fibre_cut_rate=si.get("fibre_cut_rate", config.scenario_injection.fibre_cut_rate),
             )
 
+        # Abeyance memory scaling
+        if "abeyance_memory" in d:
+            am = d["abeyance_memory"]
+            config.abeyance_memory = AbeyanceMemoryConfig(
+                fragment_fraction=am.get("fragment_fraction", config.abeyance_memory.fragment_fraction),
+                min_fragments=am.get("min_fragments", config.abeyance_memory.min_fragments),
+                max_fragments=am.get("max_fragments", config.abeyance_memory.max_fragments),
+                snap_decisions_per_profile=am.get(
+                    "snap_decisions_per_profile",
+                    config.abeyance_memory.snap_decisions_per_profile,
+                ),
+                causal_pairs_per_category=am.get(
+                    "causal_pairs_per_category",
+                    config.abeyance_memory.causal_pairs_per_category,
+                ),
+                disconfirmation_max=am.get(
+                    "disconfirmation_max",
+                    config.abeyance_memory.disconfirmation_max,
+                ),
+                bridge_candidates_per_severity=am.get(
+                    "bridge_candidates_per_severity",
+                    config.abeyance_memory.bridge_candidates_per_severity,
+                ),
+            )
+
         # Paths
         if "data_store_root" in d:
             config.paths = OutputPathConfig(data_store_root=Path(d["data_store_root"]))
@@ -632,6 +683,15 @@ class GeneratorConfig:
                 "transport_failure_rate": self.scenario_injection.transport_failure_rate,
                 "power_failure_rate": self.scenario_injection.power_failure_rate,
                 "fibre_cut_rate": self.scenario_injection.fibre_cut_rate,
+            },
+            "abeyance_memory": {
+                "fragment_fraction": self.abeyance_memory.fragment_fraction,
+                "min_fragments": self.abeyance_memory.min_fragments,
+                "max_fragments": self.abeyance_memory.max_fragments,
+                "snap_decisions_per_profile": self.abeyance_memory.snap_decisions_per_profile,
+                "causal_pairs_per_category": self.abeyance_memory.causal_pairs_per_category,
+                "disconfirmation_max": self.abeyance_memory.disconfirmation_max,
+                "bridge_candidates_per_severity": self.abeyance_memory.bridge_candidates_per_severity,
             },
             "data_store_root": str(self.paths.data_store_root),
         }

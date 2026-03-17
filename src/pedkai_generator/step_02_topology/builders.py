@@ -10,6 +10,7 @@ the ground_truth_entities and ground_truth_relationships contracts.
 from __future__ import annotations
 
 import uuid
+import hashlib
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -122,7 +123,15 @@ def make_relationship(
     relationship_id must be supplied (generated via _uuid_v7(rng) at the call site).
     """
     if not relationship_id:
-        raise ValueError("relationship_id is required — generate with _uuid_v7(rng) at the call site")
+        # Deterministically derive a UUIDv7-like identifier from stable inputs
+        # so callers that forget to pass an explicit _uuid_v7(rng) still get
+        # a reproducible identifier. Uses SHA256 of canonical key bytes.
+        key = f"{tenant_id}|{from_entity_id}|{relationship_type}|{to_entity_id}|{to_entity_type}"
+        raw = hashlib.sha256(key.encode("utf-8")).digest()
+        b = bytearray(raw[:16])
+        b[6] = (b[6] & 0x0F) | 0x70
+        b[8] = (b[8] & 0x3F) | 0x80
+        relationship_id = str(uuid.UUID(bytes=bytes(b)))
     return {
         "relationship_id": relationship_id,
         "tenant_id": tenant_id,

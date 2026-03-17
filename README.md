@@ -23,7 +23,7 @@ A UK-scale converged telecom operator dataset generator for [Pedkai](https://git
 
 ## Overview
 
-The generator produces **~6.6 GB across 14 Parquet files** representing a realistic converged telecom operator with:
+The generator produces **~6.6 GB across 21 Parquet files** representing a realistic converged telecom operator with:
 
 - **21,100 sites** across 38 Indonesian provinces (3 timezones: WIB/WITA/WIT)
 - **~66,100 logical cell-layers** (LTE, NR-NSA EN-DC, NR-SA) with 3GPP-aligned physics

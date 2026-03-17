@@ -1,5 +1,5 @@
 """
-Step 12: Abeyance Memory Test Data Generator.
+Step 10: Abeyance Memory Test Data Generator.
 
 Produces deterministic, seed-reproducible datasets that exercise every
 lifecycle path, state transition, and discovery-mechanism input defined
@@ -236,10 +236,16 @@ class FragmentSpec:
     entity_count: int
 
 
-def _lifecycle_specs(rng: np.random.Generator) -> list[FragmentSpec]:
-    """
-    Build a representative set of FragmentSpecs covering every lifecycle
-    state and every mask combination required by LLD §2.5.
+def _lifecycle_specs(
+    rng: np.random.Generator,
+    target_fragments: int | None = None,
+    domains: list[str] | None = None,
+) -> list[FragmentSpec]:
+    """Build a representative set of FragmentSpecs.
+
+    By default, covers every lifecycle state + mask combination required by
+    LLD §2.5. When `target_fragments` is set, the generator will scale up
+    by appending randomly sampled specs until the requested count is reached.
     """
     specs: list[FragmentSpec] = []
     states_masks = [
@@ -258,9 +264,14 @@ def _lifecycle_specs(rng: np.random.Generator) -> list[FragmentSpec]:
         ("COLD",      False, False, False, (0.00, 0.01)),   # tombstoned
     ]
     polarities = ["UP", "DOWN", "NEUTRAL"]
+
+    if domains is None:
+        domains = ENTITY_DOMAINS[:3]
+
+    # Start with the canonical coverage set
     for status, ms, mt, mo, (dlo, dhi) in states_masks:
         for profile in FAILURE_MODE_PROFILES:
-            for domain in ENTITY_DOMAINS[:3]:  # keep row count manageable
+            for domain in domains:
                 polarity = str(rng.choice(polarities))
                 src = str(rng.choice(SOURCE_TYPES))
                 decay = float(rng.uniform(dlo, dhi))
@@ -275,6 +286,29 @@ def _lifecycle_specs(rng: np.random.Generator) -> list[FragmentSpec]:
                     decay_score=round(decay, 4),
                     entity_count=n_ent,
                 ))
+
+    # Scale out to match the requested number of fragments (if any)
+    if target_fragments is not None and len(specs) < target_fragments:
+        while len(specs) < target_fragments:
+            idx = int(rng.integers(0, len(states_masks)))
+            status, ms, mt, mo, (dlo, dhi) = states_masks[idx]
+            profile = str(rng.choice(FAILURE_MODE_PROFILES))
+            domain = str(rng.choice(domains))
+            polarity = str(rng.choice(polarities))
+            src = str(rng.choice(SOURCE_TYPES))
+            decay = float(rng.uniform(dlo, dhi))
+            n_ent = int(rng.integers(1, 8))
+            specs.append(FragmentSpec(
+                status=status,
+                mask=(ms, mt, mo),
+                polarity=polarity,
+                source_type=src,
+                entity_domain=domain,
+                failure_mode_profile=profile,
+                decay_score=round(decay, 4),
+                entity_count=n_ent,
+            ))
+
     return specs
 
 
@@ -424,10 +458,12 @@ def _build_snap_decisions(
     fragments: list[dict[str, Any]],
     rng: np.random.Generator,
     tenant_id: str,
+    snap_decisions_per_profile: int,
 ) -> list[dict[str, Any]]:
-    """
-    Produce snap_decision_records exercising all four decision types across
-    all five failure-mode profiles and all mask combinations.
+    """Produce snap_decision_records exercising all decision types.
+
+    The total volume scales with the configured number of decisions per
+    failure-mode profile.
     """
     rows: list[dict[str, Any]] = []
 
@@ -444,7 +480,7 @@ def _build_snap_decisions(
         if len(pool) < 2:
             continue
         rng.shuffle(pool)
-        for idx in range(min(40, len(pool) - 1)):
+        for idx in range(min(snap_decisions_per_profile, len(pool) - 1)):
             fa = pool[idx]
             fb = pool[idx + 1]
             decision = decisions_cycle[idx % len(decisions_cycle)]
@@ -465,21 +501,23 @@ def _build_surprise_events(
     snap_rows: list[dict[str, Any]],
     rng: np.random.Generator,
     tenant_id: str,
+    total_events: int,
 ) -> list[dict[str, Any]]:
-    """
-    Produce surprise_event rows covering all three escalation types:
-      DISCOVERY (1-2 high-surprise dims), DRIFT_ALERT (3+ dims),
-      CALIBRATION_ALERT (monotonic threshold decay).
-    Uses LLD §7.1 Shannon self-information formula.
-    """
+    """Produce surprise_event rows covering all escalation types."""
     rows: list[dict[str, Any]] = []
     DEFAULT_THRESHOLD = 6.64  # -log2(1/100)
     CAP_BITS = 20.0
 
-    escalation_seq = ["DISCOVERY"] * 6 + ["DRIFT_ALERT"] * 3 + ["CALIBRATION_ALERT"] * 2
+    # Base escalation sequence (original fixture pattern)
+    base_seq = ["DISCOVERY"] * 6 + ["DRIFT_ALERT"] * 3 + ["CALIBRATION_ALERT"] * 2
+    if total_events <= 0:
+        return rows
 
-    for i, snap in enumerate(snap_rows[:len(escalation_seq)]):
-        esc = escalation_seq[i]
+    # Repeat/truncate to meet target size (preserves ordering)
+    escalation_seq = (base_seq * ((total_events // len(base_seq)) + 1))[:total_events]
+
+    for i, esc in enumerate(escalation_seq):
+        snap = snap_rows[i % len(snap_rows)]
         # Synthesise a surprising bin (low probability → high surprise)
         bin_prob = float(rng.uniform(0.001, 0.009))
         surprise = min(CAP_BITS, -np.log2(bin_prob + 0.01))
@@ -516,21 +554,20 @@ def _build_temporal_sequences(
     fragments: list[dict[str, Any]],
     rng: np.random.Generator,
     tenant_id: str,
+    entity_count: int,
 ) -> list[dict[str, Any]]:
-    """
-    entity_sequence_log rows for Temporal Sequence Modelling (Mechanism #7)
-    and Expectation Violation (Mechanism #9).
+    """Generate entity_sequence_log rows for Temporal Sequence modelling.
 
-    Categories:
-      - STABLE transitions: count_hint >= 100, is_rare=False
-      - LOW_CONFIDENCE:     count_hint 5-19, is_rare=False
-      - RARE:               count_hint < 5, is_rare=True
+    The number of entities and transitions scales with the fragment count.
     """
     rows: list[dict[str, Any]] = []
     all_states = ["ALARM|CRITICAL", "ALARM|MAJOR", "METRIC|WARNING", "METRIC|NORMAL",
                   "TICKET|NORMAL", "TICKET|URGENT", "LOG|ERROR", "LOG|INFO"]
 
-    entity_ids = list({f["entity_id"] for f in fragments})[:30]
+    unique_ids = list({f["entity_id"] for f in fragments})
+    sample_count = min(len(unique_ids), entity_count)
+    entity_ids = list(rng.choice(unique_ids, size=sample_count, replace=False))
+
     count_profiles = [
         ("STABLE",         100, 500, False),
         ("LOW_CONFIDENCE", 5,   19,  False),
@@ -546,7 +583,7 @@ def _build_temporal_sequences(
             to_state = str(rng.choice(all_states))
             cat, cnt_lo, cnt_hi, is_rare = count_profiles[t % len(count_profiles)]
             ts = SIMULATION_EPOCH + timedelta(hours=int(rng.integers(0, 720)))
-            fid = fragments[int(rng.integers(0, len(fragments)))]["fragment_id"]
+            fid = fragments[int(rng.integers(0, len(fragments)))] ["fragment_id"]
 
             rows.append({
                 "seq_id":               _uuid_v7(rng),
@@ -573,16 +610,9 @@ def _build_causal_pairs(
     fragments: list[dict[str, Any]],
     rng: np.random.Generator,
     tenant_id: str,
+    pairs_per_category: int,
 ) -> list[dict[str, Any]]:
-    """
-    Co-occurrence pairs for Causal Direction Testing (Mechanism #10).
-    LLD §9.3 requires: N_min=15, delta_threshold=0.80, CV_max=0.50.
-
-    Three categories:
-      CONSISTENT:    A→B fraction >= 0.80 (should produce causal_candidate)
-      BORDERLINE:    A→B fraction 0.65-0.79 (borderline)
-      CONTRADICTORY: A→B fraction <= 0.50 (should not produce candidate)
-    """
+    """Co-occurrence pairs for Causal Direction Testing (Mechanism #10)."""
     rows: list[dict[str, Any]] = []
     fids = [f["fragment_id"] for f in fragments]
     entities = list({f["entity_id"] for f in fragments})
@@ -594,8 +624,7 @@ def _build_causal_pairs(
     ]
 
     for direction_cat, frac_lo, frac_hi in categories:
-        n_pairs = 20
-        for _ in range(n_pairs):
+        for _ in range(pairs_per_category):
             ea, eb = entities[int(rng.integers(0, len(entities)))], entities[int(rng.integers(0, len(entities)))]
             fa, fb = fids[int(rng.integers(0, len(fids)))], fids[int(rng.integers(0, len(fids)))]
             direction_frac = float(rng.uniform(frac_lo, frac_hi))
@@ -627,16 +656,13 @@ def _build_disconfirmation_events(
     fragments: list[dict[str, Any]],
     rng: np.random.Generator,
     tenant_id: str,
+    max_events: int,
 ) -> list[dict[str, Any]]:
-    """
-    Negative Evidence batches (Mechanism #3, LLD §7.3).
-    Covers OPERATOR-driven (reason field set) and SYSTEM-driven (confirmed FP).
-    acceleration_factor bounds: [2.0, 10.0].
-    """
+    """Negative Evidence batches (Mechanism #3, LLD §7.3)."""
     rows: list[dict[str, Any]] = []
     active_frags = [f for f in fragments if f["snap_status"] in ("ACTIVE", "NEAR_MISS", "SNAPPED")]
 
-    for i, frag in enumerate(active_frags[:60]):
+    for i, frag in enumerate(active_frags[:max_events]):
         pathway = "OPERATOR" if i % 3 != 2 else "SYSTEM"
         acc_factor = round(float(rng.uniform(2.0, 10.0)), 2)
         pre = frag["current_decay_score"]
@@ -666,6 +692,7 @@ def _build_bridge_candidates(
     fragments: list[dict[str, Any]],
     rng: np.random.Generator,
     tenant_id: str,
+    per_severity: int,
 ) -> list[dict[str, Any]]:
     """
     Accumulation graph node records for Bridge Detection (Mechanism #4).
@@ -689,9 +716,8 @@ def _build_bridge_candidates(
     frag_pool = [f for f in fragments if f["snap_status"] in ("ACTIVE", "NEAR_MISS", "SNAPPED")]
 
     for severity, bc_lo, bc_hi, sub_lo, sub_hi in bc_profiles:
-        per_sev = 8
-        used_frags = frag_pool[:per_sev]
-        frag_pool = frag_pool[per_sev:] or frag_pool
+        used_frags = frag_pool[:per_severity]
+        frag_pool = frag_pool[per_severity:] or frag_pool
 
         for i, frag in enumerate(used_frags):
             bc = float(rng.uniform(bc_lo, bc_hi))
@@ -769,57 +795,131 @@ def generate_abeyance_memory_data(config: GeneratorConfig) -> None:
     Writes 7 Parquet files to output/abeyance_memory/.
     Fully reproducible from config.global_seed.
     """
-    seed = config.seed_for("step_12_abeyance_memory")
+    seed = config.seed_for("step_10_abeyance_memory")
     rng = np.random.default_rng(seed)
     tenant_id = config.tenant_id
 
     out_dir = config.paths.output_dir / "abeyance_memory"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    console.rule("[bold cyan]Phase 12 — Abeyance Memory Test Data")
+    console.rule("[bold cyan]Phase 10 — Abeyance Memory Test Data")
     console.print(f"    seed={seed}  tenant={tenant_id}  out={out_dir}")
 
     # Entity pool (real IDs from Phase 2 if available)
     entity_pool = _load_entity_pool(config, rng)
 
+    # Determine how many fragments to generate (scales with network size)
+    ab_cfg = config.abeyance_memory
+    entity_count = len(entity_pool)
+    target_fragments = max(ab_cfg.min_fragments, int(entity_count * ab_cfg.fragment_fraction))
+    if ab_cfg.max_fragments is not None:
+        target_fragments = min(target_fragments, ab_cfg.max_fragments)
+
+    # Scale factor relative to the original baseline fixture size
+    base_fragments = 180
+    scale = target_fragments / base_fragments
+
+    # Derive scaled counts (0 in config means auto-scale)
+    snap_per_profile = (
+        ab_cfg.snap_decisions_per_profile
+        or max(1, int(round(40 * scale)))
+    )
+    surprise_total = (
+        ab_cfg.surprise_events_total
+        or max(1, int(round(11 * scale)))
+    )
+    temporal_entities = (
+        ab_cfg.temporal_entity_count
+        or max(1, int(round(30 * scale)))
+    )
+    causal_pairs_per_cat = (
+        ab_cfg.causal_pairs_per_category
+        or max(1, int(round(20 * scale)))
+    )
+    disconfirmation_max = (
+        ab_cfg.disconfirmation_max
+        or max(1, int(round(60 * scale)))
+    )
+    bridge_candidates_per_sev = (
+        ab_cfg.bridge_candidates_per_severity
+        or max(1, int(round(8 * scale)))
+    )
+
+    console.print(
+        f"    [dim]Generating {target_fragments:,} fragments (entity pool {entity_count:,}) "
+        f"→ scale={scale:.2f} | snap={snap_per_profile} | surprise={surprise_total} | "
+        f"temporal_entities={temporal_entities} | causal={causal_pairs_per_cat} | "
+        f"disconf={disconfirmation_max} | bridge={bridge_candidates_per_sev}[/dim]"
+    )
+
     # ── 1. Fragments ─────────────────────────────────────────────────────
-    specs = _lifecycle_specs(rng)
+    specs = _lifecycle_specs(rng, target_fragments=target_fragments, domains=ENTITY_DOMAINS)
     fragment_rows, fid_status = _build_fragments(specs, rng, tenant_id, entity_pool)
     n = _write_parquet(fragment_rows, FRAGMENT_SCHEMA, out_dir / "abeyance_fragments.parquet")
     console.print(f"    [green]abeyance_fragments.parquet[/green]       {n:>8,} rows")
 
     # ── 2. Snap decisions ────────────────────────────────────────────────
-    snap_rows = _build_snap_decisions(fragment_rows, rng, tenant_id)
+    snap_rows = _build_snap_decisions(
+        fragment_rows,
+        rng,
+        tenant_id,
+        snap_per_profile,
+    )
     n = _write_parquet(snap_rows, SNAP_DECISION_SCHEMA, out_dir / "snap_decision_records.parquet")
     console.print(f"    [green]snap_decision_records.parquet[/green]    {n:>8,} rows")
 
     # ── 3. Surprise events ───────────────────────────────────────────────
-    surprise_rows = _build_surprise_events(snap_rows, rng, tenant_id)
+    surprise_rows = _build_surprise_events(
+        snap_rows,
+        rng,
+        tenant_id,
+        surprise_total,
+    )
     n = _write_parquet(surprise_rows, SURPRISE_SCHEMA, out_dir / "scenario_surprise_events.parquet")
     console.print(f"    [green]scenario_surprise_events.parquet[/green] {n:>8,} rows")
 
     # ── 4. Temporal sequences ────────────────────────────────────────────
-    seq_rows = _build_temporal_sequences(fragment_rows, rng, tenant_id)
+    seq_rows = _build_temporal_sequences(
+        fragment_rows,
+        rng,
+        tenant_id,
+        temporal_entities,
+    )
     n = _write_parquet(seq_rows, TEMPORAL_SEQ_SCHEMA, out_dir / "temporal_sequences.parquet")
     console.print(f"    [green]temporal_sequences.parquet[/green]       {n:>8,} rows")
 
     # ── 5. Causal pairs ──────────────────────────────────────────────────
-    causal_rows = _build_causal_pairs(fragment_rows, rng, tenant_id)
+    causal_rows = _build_causal_pairs(
+        fragment_rows,
+        rng,
+        tenant_id,
+        causal_pairs_per_cat,
+    )
     n = _write_parquet(causal_rows, CAUSAL_PAIR_SCHEMA, out_dir / "causal_pairs.parquet")
     console.print(f"    [green]causal_pairs.parquet[/green]             {n:>8,} rows")
 
     # ── 6. Disconfirmation events ────────────────────────────────────────
-    disconf_rows = _build_disconfirmation_events(fragment_rows, rng, tenant_id)
+    disconf_rows = _build_disconfirmation_events(
+        fragment_rows,
+        rng,
+        tenant_id,
+        disconfirmation_max,
+    )
     n = _write_parquet(disconf_rows, DISCONFIRMATION_SCHEMA, out_dir / "disconfirmation_events.parquet")
     console.print(f"    [green]disconfirmation_events.parquet[/green]   {n:>8,} rows")
 
     # ── 7. Bridge candidates ─────────────────────────────────────────────
-    bridge_rows = _build_bridge_candidates(fragment_rows, rng, tenant_id)
+    bridge_rows = _build_bridge_candidates(
+        fragment_rows,
+        rng,
+        tenant_id,
+        bridge_candidates_per_sev,
+    )
     n = _write_parquet(bridge_rows, BRIDGE_SCHEMA, out_dir / "bridge_candidates.parquet")
     console.print(f"    [green]bridge_candidates.parquet[/green]        {n:>8,} rows")
 
     # summary table
-    t = Table(title="Phase 12 Complete", show_header=True, header_style="bold magenta")
+    t = Table(title="Phase 10 Complete", show_header=True, header_style="bold magenta")
     t.add_column("File", style="cyan")
     t.add_column("Coverage", style="white")
     t.add_row("abeyance_fragments",       "All 7 lifecycle states × 5 profiles × 3 domains × all mask combos")

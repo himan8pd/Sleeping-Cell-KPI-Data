@@ -41,6 +41,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 def _uuid_v7(rng: "np.random.Generator") -> str:
     """Deterministic UUIDv7 via seeded RNG (LLD mandatory implementation)."""
     import uuid as _uuid_, struct as _struct_
@@ -1188,6 +1190,7 @@ def _build_mapping_rows(
     mappings: list[dict[str, Any]],
     domain: str,
     tenant_id: str,
+    rng: "np.random.Generator",
 ) -> list[dict[str, Any]]:
     """
     Expand a single-vendor-neutral mapping list into two rows per KPI
@@ -1288,6 +1291,7 @@ def apply_vendor_naming(config: GeneratorConfig) -> None:
     seed = config.seed_for("step_09_vendor_naming")
     console.print(f"[dim]Step 09 seed: {seed}[/dim]")
 
+    rng = np.random.default_rng(seed)
     tenant_id = config.tenant_id
 
     console.print("[bold]Vendor Naming Layer:[/bold] mapping internal KPI names to Ericsson/Nokia PM counters")
@@ -1299,7 +1303,7 @@ def apply_vendor_naming(config: GeneratorConfig) -> None:
 
     # Radio
     console.print("\n[bold]Radio domain[/bold] (Phase 3 KPIs)...")
-    radio_rows = _build_mapping_rows(RADIO_KPI_MAPPINGS, DOMAIN_RADIO, tenant_id)
+    radio_rows = _build_mapping_rows(RADIO_KPI_MAPPINGS, DOMAIN_RADIO, tenant_id, rng)
     all_rows.extend(radio_rows)
     console.print(
         f"  [green]✓[/green] {len(RADIO_KPI_MAPPINGS)} internal names → "
@@ -1308,7 +1312,7 @@ def apply_vendor_naming(config: GeneratorConfig) -> None:
 
     # Transport
     console.print("\n[bold]Transport domain[/bold] (Phase 4 KPIs)...")
-    transport_rows = _build_mapping_rows(TRANSPORT_KPI_MAPPINGS, DOMAIN_TRANSPORT, tenant_id)
+    transport_rows = _build_mapping_rows(TRANSPORT_KPI_MAPPINGS, DOMAIN_TRANSPORT, tenant_id, rng)
     all_rows.extend(transport_rows)
     console.print(
         f"  [green]✓[/green] {len(TRANSPORT_KPI_MAPPINGS)} internal names → {len(transport_rows)} vendor mappings"
@@ -1316,7 +1320,7 @@ def apply_vendor_naming(config: GeneratorConfig) -> None:
 
     # Fixed broadband
     console.print("\n[bold]Fixed broadband domain[/bold] (Phase 4 KPIs)...")
-    fixed_bb_rows = _build_mapping_rows(FIXED_BB_KPI_MAPPINGS, DOMAIN_FIXED_BB, tenant_id)
+    fixed_bb_rows = _build_mapping_rows(FIXED_BB_KPI_MAPPINGS, DOMAIN_FIXED_BB, tenant_id, rng)
     all_rows.extend(fixed_bb_rows)
     console.print(
         f"  [green]✓[/green] {len(FIXED_BB_KPI_MAPPINGS)} internal names → {len(fixed_bb_rows)} vendor mappings"
@@ -1324,7 +1328,7 @@ def apply_vendor_naming(config: GeneratorConfig) -> None:
 
     # Enterprise circuits
     console.print("\n[bold]Enterprise circuit domain[/bold] (Phase 4 KPIs)...")
-    enterprise_rows = _build_mapping_rows(ENTERPRISE_KPI_MAPPINGS, DOMAIN_ENTERPRISE, tenant_id)
+    enterprise_rows = _build_mapping_rows(ENTERPRISE_KPI_MAPPINGS, DOMAIN_ENTERPRISE, tenant_id, rng)
     all_rows.extend(enterprise_rows)
     console.print(
         f"  [green]✓[/green] {len(ENTERPRISE_KPI_MAPPINGS)} internal names → {len(enterprise_rows)} vendor mappings"
@@ -1332,13 +1336,13 @@ def apply_vendor_naming(config: GeneratorConfig) -> None:
 
     # Core
     console.print("\n[bold]Core network domain[/bold] (Phase 4 KPIs)...")
-    core_rows = _build_mapping_rows(CORE_KPI_MAPPINGS, DOMAIN_CORE, tenant_id)
+    core_rows = _build_mapping_rows(CORE_KPI_MAPPINGS, DOMAIN_CORE, tenant_id, rng)
     all_rows.extend(core_rows)
     console.print(f"  [green]✓[/green] {len(CORE_KPI_MAPPINGS)} internal names → {len(core_rows)} vendor mappings")
 
     # Power/Environment
     console.print("\n[bold]Power/Environment domain[/bold] (Phase 4 KPIs)...")
-    power_rows = _build_mapping_rows(POWER_KPI_MAPPINGS, DOMAIN_POWER, tenant_id)
+    power_rows = _build_mapping_rows(POWER_KPI_MAPPINGS, DOMAIN_POWER, tenant_id, rng)
     all_rows.extend(power_rows)
     console.print(f"  [green]✓[/green] {len(POWER_KPI_MAPPINGS)} internal names → {len(power_rows)} vendor mappings")
 

@@ -171,6 +171,7 @@ def build_mobile_ran_topology(
                 to_entity_id=cabinet_id,
                 to_entity_type="CABINET",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -205,6 +206,7 @@ def build_mobile_ran_topology(
                 to_entity_id=ps_id,
                 to_entity_type="POWER_SUPPLY",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -219,6 +221,7 @@ def build_mobile_ran_topology(
                 to_entity_id=cabinet_id,
                 to_entity_type="CABINET",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -256,6 +259,7 @@ def build_mobile_ran_topology(
                 to_entity_id=bat_id,
                 to_entity_type="BATTERY_BANK",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -290,6 +294,7 @@ def build_mobile_ran_topology(
                 to_entity_id=mains_id,
                 to_entity_type="MAINS_CONNECTION",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -324,6 +329,7 @@ def build_mobile_ran_topology(
                 to_entity_id=cc_id,
                 to_entity_type="CLIMATE_CONTROL",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -338,6 +344,7 @@ def build_mobile_ran_topology(
                 to_entity_id=cabinet_id,
                 to_entity_type="CABINET",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -378,6 +385,7 @@ def build_mobile_ran_topology(
                 to_entity_id=tx_id,
                 to_entity_type="TRANSMISSION_EQUIPMENT",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -408,6 +416,7 @@ def build_mobile_ran_topology(
                 to_entity_id=gps_id,
                 to_entity_type="GPS_RECEIVER",
                 domain="mobile_ran",
+                relationship_id=_uuid_v7(rng),
             )
         )
         n_rels += 1
@@ -513,6 +522,7 @@ def build_mobile_ran_topology(
                     to_entity_id=as_id,
                     to_entity_type="ANTENNA_SYSTEM",
                     domain="mobile_ran",
+                    relationship_id=_uuid_v7(rng),
                 )
             )
             n_rels += 1
@@ -555,6 +565,7 @@ def build_mobile_ran_topology(
                     to_entity_id=ant_id,
                     to_entity_type="ANTENNA",
                     domain="mobile_ran",
+                    relationship_id=_uuid_v7(rng),
                 )
             )
             n_rels += 1
@@ -588,6 +599,7 @@ def build_mobile_ran_topology(
                     to_entity_id=feeder_id,
                     to_entity_type="FEEDER_CABLE",
                     domain="mobile_ran",
+                    relationship_id=_uuid_v7(rng),
                 )
             )
             n_rels += 1
@@ -631,6 +643,7 @@ def build_mobile_ran_topology(
                         to_entity_id=rru_id,
                         to_entity_type="RRU",
                         domain="mobile_ran",
+                        relationship_id=_uuid_v7(rng),
                     )
                 )
                 n_rels += 1
@@ -683,6 +696,7 @@ def build_mobile_ran_topology(
                                 to_entity_id=enodeb_id,
                                 to_entity_type="ENODEB",
                                 domain="mobile_ran",
+                                relationship_id=_uuid_v7(rng),
                             )
                         )
                         n_rels += 1
@@ -733,6 +747,7 @@ def build_mobile_ran_topology(
                             to_entity_id=cell_id,
                             to_entity_type="LTE_CELL",
                             domain="mobile_ran",
+                            relationship_id=_uuid_v7(rng),
                         )
                     )
                     n_rels += 1
@@ -777,6 +792,7 @@ def build_mobile_ran_topology(
                                 to_entity_id=gnodeb_id,
                                 to_entity_type="GNODEB",
                                 domain="mobile_ran",
+                                relationship_id=_uuid_v7(rng),
                             )
                         )
                         n_rels += 1
@@ -809,6 +825,7 @@ def build_mobile_ran_topology(
                                 to_entity_id=gnodeb_du_id,
                                 to_entity_type="GNODEB_DU",
                                 domain="mobile_ran",
+                                relationship_id=_uuid_v7(rng),
                             )
                         )
                         n_rels += 1
@@ -840,6 +857,7 @@ def build_mobile_ran_topology(
                                 to_entity_id=gnodeb_cu_cp_id,
                                 to_entity_type="GNODEB_CU_CP",
                                 domain="mobile_ran",
+                                relationship_id=_uuid_v7(rng),
                             )
                         )
                         n_rels += 1
@@ -871,6 +889,7 @@ def build_mobile_ran_topology(
                                 to_entity_id=gnodeb_cu_up_id,
                                 to_entity_type="GNODEB_CU_UP",
                                 domain="mobile_ran",
+                                relationship_id=_uuid_v7(rng),
                             )
                         )
                         n_rels += 1
@@ -921,6 +940,7 @@ def build_mobile_ran_topology(
                             to_entity_id=cell_id,
                             to_entity_type="NR_CELL",
                             domain="mobile_ran",
+                            relationship_id=_uuid_v7(rng),
                         )
                     )
                     n_rels += 1
@@ -937,6 +957,7 @@ def build_mobile_ran_topology(
                                 to_entity_type="NR_CELL",
                                 domain="mobile_ran",
                                 properties_json=props_json(mode="EN-DC", anchor_band=cell.get("band")),
+                                relationship_id=_uuid_v7(rng),
                             )
                         )
                         n_rels += 1

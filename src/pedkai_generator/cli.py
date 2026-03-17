@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sys
 import time
+import traceback
 from pathlib import Path
 
 import click
@@ -85,19 +86,19 @@ STEP_REGISTRY: dict[int, tuple[str, str, str]] = {
         "Vendor Naming — map internal KPIs to Ericsson/Nokia PM counter names",
     ),
     10: (
+        "pedkai_generator.step_12_abeyance_memory.generate",
+        "generate_abeyance_memory_data",
+        "Abeyance Memory Test Data — fragments, snap decisions, surprise events, causal pairs, bridges",
+    ),
+    11: (
         "pedkai_generator.step_10_validation.validate",
         "validate_all",
         "Validation — schema compliance, FK integrity, range checks, cross-domain consistency",
     ),
-    11: (
+    12: (
         "pedkai_generator.step_11_loader.loader",
         "load_into_pedkai",
         "Pedkai Loader — ingest all Parquet files into Pedkai's database",
-    ),
-    12: (
-        "pedkai_generator.step_12_abeyance_memory.generate",
-        "generate_abeyance_memory_data",
-        "Abeyance Memory Test Data — fragments, snap decisions, surprise events, causal pairs, bridges",
     ),
 }
 
@@ -112,9 +113,9 @@ PARALLEL_GROUPS: list[list[int]] = [
     [6],  # Phase 6: events, needs scenarios
     [8],  # Phase 8: CMDB degradation, needs ground truth topology
     [9],  # Phase 9: vendor naming, needs KPIs
-    [10],  # Phase 10: validation, needs everything
-    [11],  # Phase 11: loader, needs everything
-    [12],  # Phase 12: Abeyance Memory test data — runs after topology (Step 2)
+    [10],  # Phase 10: Abeyance Memory test data — runs after topology (Step 2)
+    [11],  # Phase 11: validation, needs everything (including abeyance memory)
+    [12],  # Phase 12: loader, needs everything (including validation + abeyance memory)
 ]
 
 # Dependency map: step -> list of steps it depends on
@@ -129,9 +130,9 @@ STEP_DEPENDENCIES: dict[int, list[int]] = {
     7: [2],
     8: [2],
     9: [3, 4],
-    10: [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    11: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-    12: [2],  # Needs topology for real entity IDs; gracefully falls back to synthetics
+    10: [2, 3, 4, 5, 6, 7, 8, 9],  # Abeyance Memory needs telemetry from KPI + scenario + events + CMDB + naming layers
+    11: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],  # Validation (depends on abeyance memory)
+    12: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],  # Loader (needs validation + abeyance memory)
 }
 
 
@@ -147,22 +148,28 @@ def _import_step_function(step_num: int):
 def _resolve_execution_order(requested_steps: list[int]) -> list[int]:
     """
     Given a set of requested steps, resolve the full execution order
-    including all dependencies, in topological order.
-    """
-    needed: set[int] = set()
+    including all dependencies.
 
-    def _add_with_deps(step: int) -> None:
-        if step in needed:
+    The pipeline dependencies define a DAG; this function performs a simple
+    depth-first traversal to ensure that all prerequisites run before their
+    dependents.
+    """
+
+    order: list[int] = []
+    visited: set[int] = set()
+
+    def _visit(step: int) -> None:
+        if step in visited:
             return
+        visited.add(step)
         for dep in STEP_DEPENDENCIES.get(step, []):
-            _add_with_deps(dep)
-        needed.add(step)
+            _visit(dep)
+        order.append(step)
 
     for s in requested_steps:
-        _add_with_deps(s)
+        _visit(s)
 
-    # Return in numeric order (which is topological by design)
-    return sorted(needed)
+    return order
 
 
 def _display_plan(steps: list[int]) -> None:
@@ -183,11 +190,96 @@ def _display_plan(steps: list[int]) -> None:
     console.print()
 
 
-def _run_step(step_num: int, config: GeneratorConfig) -> float:
-    """
-    Run a single pipeline step. Returns elapsed time in seconds.
-    """
+def _step_has_outputs(step_num: int, config: GeneratorConfig) -> bool:
+    """Return True if the step's expected output already exists."""
+    out = config.paths.output_dir
+
+    if step_num == 0:
+        return (out / "schemas" / "all_contracts.json").exists()
+
+    if step_num == 1:
+        return (
+            (out / "intermediate" / "sites.parquet").exists()
+            and (out / "intermediate" / "cells.parquet").exists()
+        )
+
+    if step_num == 2:
+        return (out / "ground_truth_entities.parquet").exists()
+
+    if step_num == 3:
+        return (out / "kpi_metrics_wide.parquet").exists()
+
+    if step_num == 4:
+        return all(
+            (out / fn).exists()
+            for fn in [
+                "transport_kpis_wide.parquet",
+                "fixed_broadband_kpis_wide.parquet",
+                "enterprise_circuit_kpis_wide.parquet",
+                "core_element_kpis_wide.parquet",
+                "power_environment_kpis.parquet",
+            ]
+        )
+
+    if step_num == 5:
+        return (
+            (out / "scenario_manifest.parquet").exists()
+            and (out / "scenario_kpi_overrides.parquet").exists()
+        )
+
+    if step_num == 6:
+        return (out / "events_alarms.parquet").exists()
+
+    if step_num == 7:
+        return (out / "customers_bss.parquet").exists()
+
+    if step_num == 8:
+        return all(
+            (out / fn).exists()
+            for fn in [
+                "cmdb_declared_entities.parquet",
+                "cmdb_declared_relationships.parquet",
+                "divergence_manifest.parquet",
+            ]
+        )
+
+    if step_num == 9:
+        return (out / "vendor_naming_map.parquet").exists()
+
+    if step_num == 10:
+        return (out / "abeyance_memory" / "abeyance_fragments.parquet").exists()
+
+    if step_num == 11:
+        return (
+            (out / "validation" / "validation_report.json").exists()
+            if (out / "validation").exists()
+            else False
+        )
+
+    if step_num == 12:
+        return (
+            (out / "pedkai_loader_log.txt").exists()
+            if (out / "pedkai_loader_log.txt").exists()
+            else False
+        )
+
+    # Fallback: assume output doesn't exist
+    return False
+
+
+def _run_step(
+    step_num: int,
+    config: GeneratorConfig,
+    skip_existing: bool = False,
+    force: bool = False,
+) -> float:
+    """Run a single pipeline step. Returns elapsed time in seconds."""
     _, _, desc = STEP_REGISTRY[step_num]
+
+    if not force and skip_existing and _step_has_outputs(step_num, config):
+        console.print(f"\n[bold yellow]→ Skipping Step {step_num} (outputs exist)[/bold yellow]")
+        return 0.0
+
     console.print(f"\n[bold blue]━━━ Step {step_num}: {desc} ━━━[/bold blue]")
 
     start = time.time()
@@ -200,6 +292,7 @@ def _run_step(step_num: int, config: GeneratorConfig) -> float:
     except Exception as e:
         elapsed = time.time() - start
         console.print(f"[bold red]✗ Step {step_num} FAILED[/bold red] after {elapsed:.1f}s: {e}")
+        traceback.print_exc()
         raise
 
 
@@ -217,7 +310,7 @@ def main():
     Generates a UK-scale converged operator dataset with radio-layer physics,
     multi-domain KPIs, scenario injection, and CMDB degradation for Dark Graph training.
 
-    Output: ~6.6 GB across 14 Parquet files → /Volumes/Projects/Pedkai Data Store/
+    Output: ~6.6 GB across 21 Parquet files → /Volumes/Projects/Pedkai Data Store/
     """
     pass
 
@@ -252,6 +345,16 @@ def main():
     default=None,
     help="Override data store root path.",
 )
+@click.option(
+    "--skip-existing",
+    is_flag=True,
+    help="Skip steps whose output already exists (useful when re-running a later step).",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force rerun of requested steps even if their outputs already exist.",
+)
 @click.option("--dry-run", is_flag=True, help="Show execution plan without running anything.")
 @click.option(
     "--days",
@@ -267,6 +370,8 @@ def run(
     seed: int | None,
     tenant_id: str | None,
     data_store: Path | None,
+    skip_existing: bool,
+    force: bool,
     dry_run: bool,
     days: int | None,
 ):
@@ -340,6 +445,9 @@ def run(
     timings: dict[int, float] = {}
     total_start = time.time()
 
+    # Determine which steps should be forced (rerun even if outputs exist).
+    force_steps = set(requested) if force else set()
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -356,7 +464,12 @@ def run(
             progress.update(overall_task, description=f"Step {step_num}: {desc[:50]}...")
 
             try:
-                elapsed = _run_step(step_num, config)
+                elapsed = _run_step(
+                    step_num,
+                    config,
+                    skip_existing=skip_existing,
+                    force=(step_num in force_steps),
+                )
                 timings[step_num] = elapsed
             except Exception:
                 console.print(

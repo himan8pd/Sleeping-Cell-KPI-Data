@@ -1,5 +1,5 @@
 """
-Step 11: Pedkai Loader — Ingest all Parquet files into Pedkai's database.
+Step 12: Pedkai Loader — Ingest all Parquet files into Pedkai's database.
 
 This module provides the ingestion pipeline that loads the generated
 synthetic dataset into Pedkai's database layer.  It supports both
@@ -618,8 +618,14 @@ LOAD_PLAN: list[tuple[str, str, int, str, str | None]] = [
     ("neighbour_relations.parquet", "neighbour_relation", BATCH_SIZE_NEIGHBOURS, "table", "relation_id"),
     # 9. Scenario data
     ("scenario_manifest.parquet", "scenario_manifest", BATCH_SIZE_ENTITIES, "table", "scenario_id"),
-    ("scenario_kpi_overrides.parquet", "scenario_kpi_override", BATCH_SIZE_KPI_ROWS, "table", None),
-]
+    ("scenario_kpi_overrides.parquet", "scenario_kpi_override", BATCH_SIZE_KPI_ROWS, "table", None),    # 12. Abeyance Memory test data
+    ("abeyance_fragments.parquet", "abeyance_fragments", BATCH_SIZE_ENTITIES, "table", "fragment_id"),
+    ("snap_decision_records.parquet", "snap_decision_records", BATCH_SIZE_ENTITIES, "table", "record_id"),
+    ("scenario_surprise_events.parquet", "scenario_surprise_events", BATCH_SIZE_ENTITIES, "table", "event_id"),
+    ("temporal_sequences.parquet", "temporal_sequences", BATCH_SIZE_ENTITIES, "table", "seq_id"),
+    ("causal_pairs.parquet", "causal_pairs", BATCH_SIZE_ENTITIES, "table", "pair_id"),
+    ("disconfirmation_events.parquet", "disconfirmation_events", BATCH_SIZE_ENTITIES, "table", "event_id"),
+    ("bridge_candidates.parquet", "bridge_candidates", BATCH_SIZE_ENTITIES, "table", "node_id"),]
 
 
 # ---------------------------------------------------------------------------
@@ -629,7 +635,7 @@ LOAD_PLAN: list[tuple[str, str, int, str, str | None]] = [
 
 def load_into_pedkai(config: GeneratorConfig) -> None:
     """
-    Step 11 entry point: Ingest all Parquet files into Pedkai's database.
+    Step 12 entry point: Ingest all Parquet files into Pedkai's database.
 
     By default, runs in **dry-run mode** — validates all files are readable,
     counts rows, and reports what a real load would do.  Set the environment
@@ -643,8 +649,8 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
     """
     step_start = time.time()
 
-    seed = config.seed_for("step_11_loader")
-    console.print(f"[dim]Step 11 seed: {seed}[/dim]")
+    seed = config.seed_for("step_12_loader")
+    console.print(f"[dim]Step 12 seed: {seed}[/dim]")
 
     output_dir = config.paths.output_dir
     validation_dir = config.paths.validation_dir
@@ -707,6 +713,11 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
 
     for filename, _, _, _, _ in LOAD_PLAN:
         filepath = output_dir / filename
+        if not filepath.exists():
+            alt = output_dir / "abeyance_memory" / filename
+            if alt.exists():
+                filepath = alt
+
         if filepath.exists():
             existing_files += 1
             total_size_mb += filepath.stat().st_size / (1024 * 1024)
@@ -729,6 +740,10 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
 
     for filename, table_name, batch_size, load_mode, upsert_key in LOAD_PLAN:
         filepath = output_dir / filename
+        if not filepath.exists():
+            alt = output_dir / "abeyance_memory" / filename
+            if alt.exists():
+                filepath = alt
 
         if load_mode == "register":
             # KPI files — always register as external datasets
@@ -774,7 +789,7 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
 
     # Load operations summary
     summary_table = Table(
-        title=f"Step 11: Pedkai Loader — Load Summary ({effective_mode})",
+        title=f"Step 12: Pedkai Loader — Load Summary ({effective_mode})",
         show_header=True,
     )
     summary_table.add_column("Source File", style="bold", width=40)
@@ -878,13 +893,13 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
 
     if total_failed == 0 and not report.errors:
         console.print(
-            f"\n[bold green]✓ Step 11 complete.[/bold green] "
+            f"\n[bold green]✓ Step 12 complete.[/bold green] "
             f"Processed {total_rows:,} rows across "
             f"{len(report.stats)} operations in {time_str}"
         )
     else:
         console.print(
-            f"\n[bold yellow]⚠ Step 11 complete with issues.[/bold yellow] "
+            f"\n[bold yellow]⚠ Step 12 complete with issues.[/bold yellow] "
             f"Processed {total_rows:,} rows, "
             f"{total_failed:,} failed, "
             f"{len(report.errors)} errors in {time_str}"
@@ -897,7 +912,7 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
             f"  export {ENV_DB_URL}='postgresql://user:pass@host:5432/pedkai'\n"
             "To enable API loading (events/alarms):\n"
             f"  export {ENV_API_URL}='http://host:8000/api/v1'\n"
-            "Then re-run step 11.[/dim]"
+            "Then re-run step 12.[/dim]"
         )
     elif effective_mode == "database":
         console.print(

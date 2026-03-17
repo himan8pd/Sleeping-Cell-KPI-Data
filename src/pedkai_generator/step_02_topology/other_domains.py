@@ -44,7 +44,7 @@ from pedkai_generator.step_02_topology.builders import (
 console = Console()
 
 
-def _id() -> str:
+def _id(rng: "np.random.Generator") -> str:
     return _uuid_v7(rng)
 
 
@@ -105,7 +105,7 @@ def build_transport_topology(
     ]
 
     for i in range(n_p_routers):
-        pid = _id()
+        pid = _id(rng)
         p_router_ids.append(pid)
         prov_idx = i % len(major_provinces)
         prov_name, lat, lon = major_provinces[prov_idx]
@@ -149,6 +149,7 @@ def build_transport_topology(
                     to_entity_type="P_ROUTER",
                     domain="transport",
                     properties_json=props_json(protocol="IS-IS", metric=int(rng.integers(10, 100))),
+                    relationship_id=_uuid_v7(rng),
                 )
             )
             p_rels += 1
@@ -156,7 +157,7 @@ def build_transport_topology(
     # ── ROUTE_REFLECTOR ──────────────────────────────────────
     rr_ids: list[str] = []
     for i in range(n_route_reflectors):
-        rr_id = _id()
+        rr_id = _id(rng)
         rr_ids.append(rr_id)
         prov_idx = i % len(major_provinces)
         prov_name, lat, lon = major_provinces[prov_idx]
@@ -179,7 +180,7 @@ def build_transport_topology(
     pe_router_ids: list[str] = []
     pe_router_provinces: list[str] = []
     for i in range(n_pe_routers):
-        pe_id = _id()
+        pe_id = _id(rng)
         pe_router_ids.append(pe_id)
         prov_idx = i % len(major_provinces)
         prov_name, lat, lon = major_provinces[prov_idx]
@@ -220,6 +221,7 @@ def build_transport_topology(
                     to_entity_type="P_ROUTER",
                     domain="transport",
                     properties_json=props_json(interface_speed_gbps=100),
+                    relationship_id=_uuid_v7(rng),
                 )
             )
 
@@ -241,7 +243,7 @@ def build_transport_topology(
     # ── AGGREGATION_SWITCH ───────────────────────────────────
     agg_switch_ids: list[str] = []
     for i in range(n_agg_switches):
-        agg_id = _id()
+        agg_id = _id(rng)
         agg_switch_ids.append(agg_id)
         prov_idx = i % len(major_provinces)
         prov_name, lat, lon = major_provinces[prov_idx]
@@ -297,7 +299,7 @@ def build_transport_topology(
         if site_type == "in_building" and rng.random() < 0.3:
             continue
 
-        sw_id = _id()
+        sw_id = _id(rng)
         access_switch_ids.append(sw_id)
         access_switch_by_site[site["entity_id"]] = sw_id
         vendor = site.get("vendor", "nokia")
@@ -357,7 +359,7 @@ def build_transport_topology(
         # ~80% of rural sites get microwave backhaul
         if rng.random() > 0.80:
             continue
-        mw_id = _id()
+        mw_id = _id(rng)
         province = site.get("province", "")
         vendor = site.get("vendor", "nokia")
         lat_j, lon_j = offset_lat_lon(rng, site.get("geo_lat", 0), site.get("geo_lon", 0), spread_km=0.1)
@@ -401,7 +403,7 @@ def build_transport_topology(
     fibre_count = 0
     all_backbone = p_router_ids + pe_router_ids[:100]  # Sample
     for i in range(min(len(all_backbone) - 1, 300)):
-        fc_id = _id()
+        fc_id = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=fc_id,
@@ -434,7 +436,7 @@ def build_transport_topology(
     # ── DWDM_SYSTEM ──────────────────────────────────────────
     dwdm_ids: list[str] = []
     for i in range(n_dwdm):
-        did = _id()
+        did = _id(rng)
         dwdm_ids.append(did)
         prov_idx = i % len(major_provinces)
         prov_name = major_provinces[prov_idx][0]
@@ -457,7 +459,7 @@ def build_transport_topology(
     for did in dwdm_ids:
         n_ch = int(rng.integers(2, 5))
         for ch in range(n_ch):
-            oc_id = _id()
+            oc_id = _id(rng)
             acc.add_entity(
                 make_entity(
                     entity_id=oc_id,
@@ -484,7 +486,7 @@ def build_transport_topology(
     # ── BNG / CGNAT / FIREWALL / CDN ─────────────────────────
     bng_ids: list[str] = []
     for i in range(n_bng):
-        bid = _id()
+        bid = _id(rng)
         bng_ids.append(bid)
         prov_idx = i % len(major_provinces)
         prov_name = major_provinces[prov_idx][0]
@@ -517,7 +519,7 @@ def build_transport_topology(
         )
 
     for i in range(n_cgnat):
-        cid = _id()
+        cid = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=cid,
@@ -530,7 +532,7 @@ def build_transport_topology(
         )
 
     for i in range(n_firewall):
-        fid = _id()
+        fid = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=fid,
@@ -542,7 +544,7 @@ def build_transport_topology(
         )
 
     for i in range(n_cdn):
-        cid = _id()
+        cid = _id(rng)
         prov_idx = i % len(major_provinces)
         prov_name = major_provinces[prov_idx][0]
         acc.add_entity(
@@ -561,7 +563,7 @@ def build_transport_topology(
     l3vpn_ids: list[str] = []
     vpn_types = ["MOBILE_BACKHAUL_VRF", "BROADBAND_VRF", "ENTERPRISE_VPN", "MANAGEMENT_VRF"]
     for i in range(n_l3vpn):
-        vid = _id()
+        vid = _id(rng)
         l3vpn_ids.append(vid)
         vtype = vpn_types[i % len(vpn_types)]
         acc.add_entity(
@@ -594,7 +596,7 @@ def build_transport_topology(
     l2vpn_ids: list[str] = []
     l2_types = ["E_LINE", "E_LAN", "E_TREE"]
     for i in range(n_l2vpn):
-        lid = _id()
+        lid = _id(rng)
         l2vpn_ids.append(lid)
         lt = l2_types[i % len(l2_types)]
         acc.add_entity(
@@ -611,7 +613,7 @@ def build_transport_topology(
     # ── LSP ──────────────────────────────────────────────────
     lsp_ids: list[str] = []
     for i in range(n_lsp):
-        lid = _id()
+        lid = _id(rng)
         lsp_ids.append(lid)
         acc.add_entity(
             make_entity(
@@ -658,7 +660,7 @@ def build_transport_topology(
 
     # ── PSEUDOWIRE ───────────────────────────────────────────
     for i in range(n_pseudowire):
-        pw_id = _id()
+        pw_id = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=pw_id,
@@ -764,7 +766,7 @@ def build_fixed_broadband_topology(
 
     for ex_idx, ref_site in enumerate(exchange_sites):
         # --- EXCHANGE_BUILDING ---
-        ex_id = _id()
+        ex_id = _id(rng)
         exchange_ids.append(ex_id)
         lat = ref_site.get("geo_lat", 0) + float(rng.normal(0, 0.002))
         lon = ref_site.get("geo_lon", 0) + float(rng.normal(0, 0.002))
@@ -808,7 +810,7 @@ def build_fixed_broadband_topology(
         n_olts = min(n_olts, 8)  # Cap
 
         for olt_idx in range(n_olts):
-            olt_id = _id()
+            olt_id = _id(rng)
             olt_ids.append(olt_id)
             vendor = "ericsson" if rng.random() < 0.3 else "nokia"  # Nokia dominates FTTP
 
@@ -866,7 +868,7 @@ def build_fixed_broadband_topology(
             actual_pon_ports = min(actual_pon_ports, 32)
 
             for pp_idx in range(actual_pon_ports):
-                pp_id = _id()
+                pp_id = _id(rng)
                 acc.add_entity(
                     make_entity(
                         entity_id=pp_id,
@@ -892,7 +894,7 @@ def build_fixed_broadband_topology(
                 )
 
                 # --- SPLITTER per PON_PORT ---
-                sp_id = _id()
+                sp_id = _id(rng)
                 acc.add_entity(
                     make_entity(
                         entity_id=sp_id,
@@ -924,7 +926,7 @@ def build_fixed_broadband_topology(
                 n_ont = min(n_ont, splitter_ratio)
 
                 for ont_idx in range(n_ont):
-                    ont_id = _id()
+                    ont_id = _id(rng)
                     ont_ids.append(ont_id)
                     ont_lat, ont_lon = offset_lat_lon(rng, lat, lon, spread_km=2.0)
 
@@ -956,7 +958,7 @@ def build_fixed_broadband_topology(
                     )
 
                     # ONT → RESIDENTIAL_SERVICE
-                    svc_id = _id()
+                    svc_id = _id(rng)
                     acc.add_entity(
                         make_entity(
                             entity_id=svc_id,
@@ -996,7 +998,7 @@ def build_fixed_broadband_topology(
     nte_ids: list[str] = []
 
     for i in range(n_nte):
-        nte_id = _id()
+        nte_id = _id(rng)
         nte_ids.append(nte_id)
         # Place near a random urban site
         if urban_sites:
@@ -1023,7 +1025,7 @@ def build_fixed_broadband_topology(
         )
 
         # ETHERNET_CIRCUIT
-        ec_id = _id()
+        ec_id = _id(rng)
         speed = int(rng.choice([100, 1000, 10000]))
         acc.add_entity(
             make_entity(
@@ -1051,7 +1053,7 @@ def build_fixed_broadband_topology(
         )
 
         # ENTERPRISE_SERVICE
-        es_id = _id()
+        es_id = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=es_id,
@@ -1149,7 +1151,7 @@ def build_core_network_topology(
     def _add_core(etype: str, count: int, sub_domain: str, **extra_props):
         ids = []
         for i in range(count):
-            cid = _id()
+            cid = _id(rng)
             ids.append(cid)
             dc_idx = i % len(dc_locations)
             prov, lat, lon = dc_locations[dc_idx]
@@ -1487,7 +1489,7 @@ def build_logical_service_topology(
     ]
     slice_ids: list[str] = []
     for stype, sname, sdesc in slice_defs:
-        sid = _id()
+        sid = _id(rng)
         slice_ids.append(sid)
         acc.add_entity(
             make_entity(
@@ -1502,7 +1504,7 @@ def build_logical_service_topology(
 
     # Add enterprise-dedicated slices
     for i in range(50):
-        sid = _id()
+        sid = _id(rng)
         slice_ids.append(sid)
         acc.add_entity(
             make_entity(
@@ -1549,7 +1551,7 @@ def build_logical_service_topology(
     n_tracking_areas = 800
     ta_ids: list[str] = []
     for i in range(n_tracking_areas):
-        ta_id = _id()
+        ta_id = _id(rng)
         ta_ids.append(ta_id)
         acc.add_entity(
             make_entity(
@@ -1582,7 +1584,7 @@ def build_logical_service_topology(
     n_service_areas = 200
     sa_ids: list[str] = []
     for i in range(n_service_areas):
-        sa_id = _id()
+        sa_id = _id(rng)
         sa_ids.append(sa_id)
         acc.add_entity(
             make_entity(
@@ -1630,7 +1632,7 @@ def build_logical_service_topology(
         ("5QI-85", "V2X Messages", 85, 5),
     ]
     for name, desc, qi_val, delay in qos_profiles:
-        qid = _id()
+        qid = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=qid,
@@ -1693,7 +1695,7 @@ def build_power_environment_supplement(
             has_generator = rng.random() < 0.15
 
         if has_generator:
-            gen_id = _id()
+            gen_id = _id(rng)
             acc.add_entity(
                 make_entity(
                     entity_id=gen_id,
@@ -1737,7 +1739,7 @@ def build_power_environment_supplement(
         province = ex.get("province", "")
 
         # Exchange power supply
-        ps_id = _id()
+        ps_id = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=ps_id,
@@ -1774,7 +1776,7 @@ def build_power_environment_supplement(
         )
 
         # Exchange battery bank
-        bat_id = _id()
+        bat_id = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=bat_id,
@@ -1801,7 +1803,7 @@ def build_power_environment_supplement(
         )
 
         # Exchange climate control
-        cc_id = _id()
+        cc_id = _id(rng)
         acc.add_entity(
             make_entity(
                 entity_id=cc_id,
@@ -1839,7 +1841,7 @@ def build_power_environment_supplement(
 
         # Exchange generator (80% of exchanges)
         if rng.random() < 0.8:
-            gen_id = _id()
+            gen_id = _id(rng)
             acc.add_entity(
                 make_entity(
                     entity_id=gen_id,

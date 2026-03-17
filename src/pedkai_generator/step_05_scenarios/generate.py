@@ -290,8 +290,7 @@ class TopologyGraph:
         max_depth: int = 5,
         type_filter: set[str] | None = None,
     ) -> list[tuple[str, str, list[dict[str, str]]]]:
-        """
-        BFS to find all downstream entities reachable from entity_id.
+        """BFS to find all downstream entities reachable from entity_id.
 
         Returns list of (entity_id, entity_type, cascade_path) tuples.
         cascade_path is a list of dicts recording each hop.
@@ -321,6 +320,49 @@ class TopologyGraph:
                 ]
                 results.append((child_id, child_type, new_path))
                 queue.append((child_id, depth + 1, new_path))
+
+        return results
+
+    def connected(
+        self,
+        entity_id: str,
+        max_depth: int = 5,
+        type_filter: set[str] | None = None,
+    ) -> list[tuple[str, str, list[dict[str, str]]]]:
+        """BFS over the graph treating edges as undirected.
+
+        This is useful for scenario cascades where relationships may be stored
+        in either direction (e.g., fibre <-> transport).
+        """
+        visited: set[str] = {entity_id}
+        results: list[tuple[str, str, list[dict[str, str]]]] = []
+        queue: list[tuple[str, int, list[dict[str, str]]]] = [(entity_id, 0, [])]
+
+        while queue:
+            current, depth, path = queue.pop(0)
+            if depth >= max_depth:
+                continue
+
+            neighbors = []
+            neighbors.extend(self._forward.get(current, []))
+            neighbors.extend(self._reverse.get(current, []))
+
+            for neighbor_id, neighbor_type, rel_type in neighbors:
+                if neighbor_id in visited:
+                    continue
+                if type_filter is not None and neighbor_type not in type_filter:
+                    continue
+                visited.add(neighbor_id)
+                new_path = path + [
+                    {
+                        "from": current,
+                        "to": neighbor_id,
+                        "rel": rel_type,
+                        "to_type": neighbor_type,
+                    }
+                ]
+                results.append((neighbor_id, neighbor_type, new_path))
+                queue.append((neighbor_id, depth + 1, new_path))
 
         return results
 
@@ -402,7 +444,26 @@ def _pick_duration(
 
     Different scenario types have characteristic duration distributions.
     """
-    if scenario_type == SCENARIO_SLEEPING_CELL:
+    # Some scenarios assume a minimum simulation window; when running
+    # with a small total duration (e.g., --days 1) we force the scenario to
+    # span the entire window to avoid invalid rng.integers bounds.
+    min_required: dict[str, int] = {
+        SCENARIO_SLEEPING_CELL: 72,
+        SCENARIO_CONGESTION: 2,
+        SCENARIO_COVERAGE_HOLE: 48,
+        SCENARIO_HARDWARE_FAULT: 4,
+        SCENARIO_INTERFERENCE: 6,
+        SCENARIO_TRANSPORT_FAILURE: 1,
+        SCENARIO_POWER_FAILURE: 1,
+        SCENARIO_FIBRE_CUT: 2,
+    }
+
+    if total_hours <= min_required.get(scenario_type, 4):
+        # Force full coverage for tiny simulations.
+        duration = max(1, total_hours)
+        ramp_up = 0
+        ramp_down = 0
+    elif scenario_type == SCENARIO_SLEEPING_CELL:
         # Sleeping cells are long-duration — days to weeks (the whole point is
         # they persist undetected). 72h to 504h (3-21 days).
         duration = int(rng.integers(72, min(504, total_hours - 24)))
@@ -1717,7 +1778,20 @@ def _generate_fibre_cut_overrides(
     fixed_bb_types = {"OLT", "PON_PORT"}
 
     affected_cells = [eid for eid in scenario.affected_entity_ids if graph.get_type(eid) in cell_types]
-    affected_transport = [eid for eid in scenario.affected_entity_ids if graph.get_type(eid) in transport_types]
+    affected_transport = [
+        eid
+        for eid in scenario.affected_entity_ids
+        if graph.get_type(eid) in {
+            "PE_ROUTER",
+            "AGGREGATION_SWITCH",
+            "MICROWAVE_LINK",
+            "DWDM_SYSTEM",
+            "LSP",
+            "L3VPN",
+            "BNG",
+            "ACCESS_SWITCH",
+        }
+    ]
     affected_fixed_bb = [eid for eid in scenario.affected_entity_ids if graph.get_type(eid) in fixed_bb_types]
 
     for hour_idx in range(scenario.start_hour, scenario.end_hour + 1):
@@ -1974,15 +2048,33 @@ def _select_fibre_links(
     entities_df: pl.DataFrame,
     rate: float,
     rng: np.random.Generator,
+    min_links: int = 5,
+    max_links: int = 10,
 ) -> list[str]:
-    """Select random FIBRE_CABLE entities."""
+    """Select random FIBRE_CABLE entities.
+
+    This always returns between `min_links` and `max_links` instances (if
+    available) to ensure fibre cut scenarios are useful for testing.
+    """
     fibres = entities_df.filter(pl.col("entity_type") == "FIBRE_CABLE")
     n = fibres.height
     if n == 0:
         return []
+
     count = max(1, int(n * rate))
     indices = rng.choice(n, size=min(count, n), replace=False)
-    return fibres["entity_id"].gather(indices.tolist()).to_list()
+    selected = fibres["entity_id"].gather(indices.tolist()).to_list()
+
+    # Ensure at least `min_links` (if possible), and cap at `max_links`.
+    if len(selected) < min_links:
+        remaining = [eid for eid in fibres["entity_id"].to_list() if eid not in selected]
+        extra = rng.choice(remaining, size=min(len(remaining), min_links - len(selected)), replace=False)
+        selected.extend(extra)
+
+    if len(selected) > max_links:
+        selected = list(rng.choice(selected, size=max_links, replace=False))
+
+    return selected
 
 
 def _select_sites(
@@ -2210,8 +2302,28 @@ def inject_scenarios(config: GeneratorConfig) -> None:
         f"{cells_df.height:,} cells in {time.time() - t0:.1f}s"
     )
 
-    # Free the raw relationship DataFrame — we only need the graph
-    del rels_df
+    # Precompute fibre cable endpoints (the topology generator stores fibre_id in relationship properties)
+    # so that fibre cut cascades can reach the transport nodes actually affected.
+    fibre_rels = rels_df.filter(pl.col("properties_json").str.contains("fibre_cable_id", literal=True))
+
+    fibre_endpoints: dict[str, set[str]] = {}
+    for row in fibre_rels.iter_rows(named=True):
+        props_json = row.get("properties_json")
+        if not props_json:
+            continue
+        try:
+            props = json.loads(props_json)
+        except Exception:
+            continue
+        fibre_id = props.get("fibre_cable_id")
+        if not fibre_id:
+            continue
+        endpoints = fibre_endpoints.setdefault(fibre_id, set())
+        endpoints.add(row["from_entity_id"])
+        endpoints.add(row["to_entity_id"])
+
+    # Free the raw relationship DataFrame — we only need the graph and the fibre mapping
+    del rels_df, fibre_rels
     gc.collect()
 
     # ── Generate scenario instances ───────────────────────────
@@ -2444,33 +2556,48 @@ def inject_scenarios(config: GeneratorConfig) -> None:
     # ── 8. Fibre Cut (with cross-domain cascade) ─────────────
     console.print("  [dim]8. Fibre cut scenarios...[/dim]")
     fibre_links = _select_fibre_links(entities_df, sc.fibre_cut_rate, rng)
+
+    # Types we want to see reflected in the cascade / overrides
+    all_target_types = {
+        "PE_ROUTER",
+        "AGGREGATION_SWITCH",
+        "DWDM_SYSTEM",
+        "LSP",
+        "L3VPN",
+        "BNG",
+        "ACCESS_SWITCH",
+        "MICROWAVE_LINK",
+        "LTE_CELL",
+        "NR_CELL",
+        "NR_NSA_CELL",
+        "OLT",
+        "PON_PORT",
+    }
+
     for fibre_id in fibre_links:
         start_h, end_h, ramp_up, ramp_down = _pick_duration(SCENARIO_FIBRE_CUT, rng, total_hours)
         sev = _pick_severity(SCENARIO_FIBRE_CUT, rng)
 
-        # Walk topology for cross-domain cascade
-        all_target_types = {
-            "PE_ROUTER",
-            "AGGREGATION_SWITCH",
-            "DWDM_SYSTEM",
-            "LSP",
-            "L3VPN",
-            "BNG",
-            "ACCESS_SWITCH",
-            "MICROWAVE_LINK",
-            "LTE_CELL",
-            "NR_CELL",
-            "NR_NSA_CELL",
-            "OLT",
-            "PON_PORT",
-        }
-        downstream = graph.downstream(fibre_id, max_depth=5, type_filter=all_target_types)
-        affected_ids = [fibre_id] + [eid for eid, _, _ in downstream]
-        affected_ids = list(dict.fromkeys(affected_ids))
+        # Determine transport endpoints for this fibre link (stored as properties on the CONNECTS_FIBRE relationship)
+        endpoints = fibre_endpoints.get(fibre_id, set())
 
-        cascade_chain = [
-            {"from": fibre_id, "to": eid, "to_type": etype, "path": json.dumps(path)} for eid, etype, path in downstream
-        ][:30]
+        # If we didn’t find any endpoints, fall back to graph traversal from the fibre node itself.
+        # This should only happen when the topology generator stores the link in a different way.
+        if not endpoints:
+            endpoints = {eid for eid, _, _ in graph.connected(fibre_id, max_depth=5)}
+
+        affected_ids = {fibre_id} | endpoints
+
+        # Walk downstream from each endpoint to include cells/other transport nodes
+        cascade_chain: list[dict[str, str]] = []
+        for endpoint in endpoints:
+            downstream = graph.downstream(endpoint, max_depth=6, type_filter=all_target_types)
+            for eid, etype, path in downstream:
+                affected_ids.add(eid)
+                if len(cascade_chain) < 30:
+                    cascade_chain.append(
+                        {"from": endpoint, "to": eid, "to_type": etype, "path": json.dumps(path)}
+                    )
 
         scenario = ScenarioInstance(
             scenario_id=_uuid_v7(rng),
@@ -2479,13 +2606,13 @@ def inject_scenarios(config: GeneratorConfig) -> None:
             primary_entity_id=fibre_id,
             primary_entity_type="FIBRE_CABLE",
             primary_domain="transport",
-            affected_entity_ids=affected_ids,
+            affected_entity_ids=list(affected_ids),
             start_hour=start_h,
             end_hour=end_h,
             ramp_up_hours=ramp_up,
             ramp_down_hours=ramp_down,
             cascade_chain=cascade_chain,
-            parameters={"cascade_depth": len(downstream), "cross_domain": True},
+            parameters={"cascade_depth": len(affected_ids) - 1, "cross_domain": True},
         )
         all_scenarios.append(scenario)
     scenario_counts[SCENARIO_FIBRE_CUT] = len(fibre_links)

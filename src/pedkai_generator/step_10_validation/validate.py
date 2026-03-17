@@ -1,5 +1,5 @@
 """
-Step 10: Validation Framework.
+Step 11: Validation Framework.
 
 Full validation suite that checks every output Parquet file produced by
 Phases 0–9 against the schema contracts defined in Phase 0.
@@ -463,6 +463,7 @@ def _validate_fk(
     report: FileValidationReport,
     filename: str,
     sample_size: int = 1_000_000,
+    severity_on_missing: str = SEVERITY_ERROR,
 ) -> None:
     """
     Validate that all non-null values in fk_column exist in reference_set.
@@ -493,7 +494,7 @@ def _validate_fk(
         report.add_issue(
             ValidationIssue(
                 check=f"fk_{fk_column}",
-                severity=SEVERITY_ERROR,
+                severity=severity_on_missing,
                 message=(f"FK column '{fk_column}' has {len(invalid_fks):,} values not in {reference_name}"),
                 file=filename,
                 column=fk_column,
@@ -899,6 +900,14 @@ def _validate_file(
 
         for fk_col in fk_columns_to_check:
             # access_entity_id is nullable — skip null-only checks
+            severity_override = SEVERITY_ERROR
+            # CMDB-declared entities intentionally include fabricated/phantom
+            # entity IDs that will not be present in ground truth. Treat
+            # missing entity_id FK in CMDB-declared entities as a WARNING
+            # rather than an ERROR so the validation report reflects intent.
+            if contract.filename.startswith("cmdb_declared") and fk_col == "entity_id":
+                severity_override = SEVERITY_WARNING
+
             _validate_fk(
                 df,
                 fk_col,
@@ -906,6 +915,7 @@ def _validate_file(
                 "ground_truth_entities.entity_id",
                 report,
                 contract.filename,
+                severity_on_missing=severity_override,
             )
 
     # Neighbour symmetry (special case)
@@ -942,6 +952,14 @@ VALIDATION_FILES = [
     "cmdb_declared_entities.parquet",
     "cmdb_declared_relationships.parquet",
     "divergence_manifest.parquet",
+    # Abeyance Memory test data
+    "abeyance_fragments.parquet",
+    "snap_decision_records.parquet",
+    "scenario_surprise_events.parquet",
+    "temporal_sequences.parquet",
+    "causal_pairs.parquet",
+    "disconfirmation_events.parquet",
+    "bridge_candidates.parquet",
 ]
 
 # Additional files produced by later phases that may not have contracts
@@ -970,7 +988,7 @@ def _write_report(report_data: dict[str, Any], output_path: Path) -> None:
 
 def validate_all(config: GeneratorConfig) -> None:
     """
-    Step 10 entry point: Full validation suite.
+    Step 11 entry point: Full validation suite.
 
     Validates all output Parquet files against Phase 0 schema contracts,
     checks FK integrity, range bounds, cross-domain consistency, CMDB
@@ -981,8 +999,8 @@ def validate_all(config: GeneratorConfig) -> None:
     """
     step_start = time.time()
 
-    seed = config.seed_for("step_10_validation")
-    console.print(f"[dim]Step 10 seed: {seed}[/dim]")
+    seed = config.seed_for("step_11_validation")
+    console.print(f"[dim]Step 11 seed: {seed}[/dim]")
 
     console.print(
         "[bold]Validation Suite:[/bold] schema compliance, FK integrity, range checks, cross-domain consistency"
@@ -1019,7 +1037,12 @@ def validate_all(config: GeneratorConfig) -> None:
     console.print("\n[bold]Validating output files...[/bold]")
 
     for filename in VALIDATION_FILES:
+        # Support both root-level and `abeyance_memory/` locations for abeyance data.
         filepath = output_dir / filename
+        if not filepath.exists():
+            alt = output_dir / "abeyance_memory" / filename
+            if alt.exists():
+                filepath = alt
 
         if filename not in all_contracts:
             console.print(f"  [dim]⊘ {filename} — no contract defined, skipping[/dim]")
@@ -1034,7 +1057,7 @@ def validate_all(config: GeneratorConfig) -> None:
                 ValidationIssue(
                     check="file_exists",
                     severity=SEVERITY_INFO,
-                    message=f"File not found (phase may not have been run yet): {filepath}",
+                    message=f"File not found (phase may not have been run yet): {output_dir / filename}",
                     file=filename,
                 )
             )
@@ -1126,7 +1149,7 @@ def validate_all(config: GeneratorConfig) -> None:
 
     # Per-file results table
     results_table = Table(
-        title="Step 10: Validation — Per-File Results",
+        title="Step 11: Validation — Per-File Results",
         show_header=True,
     )
     results_table.add_column("File", style="bold", width=42)
@@ -1218,13 +1241,13 @@ def validate_all(config: GeneratorConfig) -> None:
 
     if summary.all_passed:
         console.print(
-            f"\n[bold green]✓ Step 10 complete — ALL VALIDATIONS PASSED.[/bold green] "
+            f"\n[bold green]✓ Step 11 complete — ALL VALIDATIONS PASSED.[/bold green] "
             f"({summary.total_checks_passed} checks, "
             f"{summary.total_checks_warned} warnings) in {time_str}"
         )
     else:
         console.print(
-            f"\n[bold red]✗ Step 10 complete — VALIDATION FAILURES DETECTED.[/bold red] "
+            f"\n[bold red]✗ Step 11 complete — VALIDATION FAILURES DETECTED.[/bold red] "
             f"({summary.total_checks_failed} errors, "
             f"{summary.total_checks_warned} warnings, "
             f"{summary.total_checks_passed} passed) in {time_str}"

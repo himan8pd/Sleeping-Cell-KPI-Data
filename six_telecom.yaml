@@ -1,0 +1,56 @@
+global_seed: 42000001
+tenant_id: six_telecom
+ericsson_fraction: 0.55
+sites:
+  greenfield: 11000
+  rooftop: 4000
+  streetworks: 5500
+  in_building: 500
+  unspecified: 100
+rat_split:
+  lte_only: 32000
+  lte_plus_nsa: 13000
+  nr_sa: 6700
+simulation:
+  simulation_days: 30
+  reporting_interval_hours: 1
+users:
+  total_subscribers: 1000000
+  residential_fraction: 0.95
+  enterprise_fraction: 0.05
+cmdb_degradation:
+  dark_node_rate: 0.065
+  phantom_node_rate: 0.03
+  dark_edge_rate: 0.1
+  phantom_edge_rate: 0.05
+  dark_attribute_rate: 0.15
+  identity_mutation_rate: 0.02
+scenario_injection:
+  sleeping_cell_rate: 0.02
+  congestion_rate: 0.05
+  coverage_hole_rate: 0.01
+  hardware_fault_rate: 0.005
+  interference_rate: 0.03
+  transport_failure_rate: 0.002
+  power_failure_rate: 0.001
+  fibre_cut_rate: 0.0005
+data_store_root: /Volumes/Projects/Pedkai Data Store/six_telecom
+
+# Abeyance memory test data configuration (added for Six Telecom)
+abeyance_memory:
+  base_snap_threshold: 0.75
+  near_miss_threshold: 0.55
+  affinity_threshold: 0.40
+  sidak_correction_formula: "1 - (1 - 0.75)^(1/k)"
+  surprise_cap_bits: 20
+  default_surprise_threshold_bits: 6.64
+  disconfirmation_acc_factor_bounds: [2.0, 10.0]
+  bridge_discovery_min_domain_span: 2
+  causal_direction_n_min: 15
+  causal_delta_threshold: 0.80
+  weight_profiles:
+    DARK_EDGE: {sem: 0.15, topo: 0.30, temp: 0.10, oper: 0.15, ent: 0.30}
+    DARK_NODE: {sem: 0.25, topo: 0.10, temp: 0.10, oper: 0.20, ent: 0.35}
+    IDENTITY_MUTATION: {sem: 0.10, topo: 0.15, temp: 0.10, oper: 0.20, ent: 0.45}
+    PHANTOM_CI: {sem: 0.20, topo: 0.15, temp: 0.10, oper: 0.25, ent: 0.30}
+    DARK_ATTRIBUTE: {sem: 0.25, topo: 0.10, temp: 0.10, oper: 0.25, ent: 0.30}

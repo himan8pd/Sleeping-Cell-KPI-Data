@@ -32,6 +32,7 @@ from pedkai_generator.step_02_topology.builders import (
     haversine_distance_m,
     make_neighbour_relation,
     make_relationship,
+    _uuid_v7,
 )
 
 console = Console()
@@ -298,6 +299,7 @@ def build_neighbour_relations(
                     handover_success_rate=round(ho_success, 2),
                     cio_offset_db=cio,
                     no_remove_flag=no_remove,
+                    relation_id=_uuid_v7(rng),
                 )
                 neighbour_rows.append(nr)
                 neighbours_added += 1
@@ -316,6 +318,7 @@ def build_neighbour_relations(
                         to_entity_id=other_id,
                         to_entity_type=other["entity_type"],
                         domain="mobile_ran",
+                        relationship_id=_uuid_v7(rng),
                     )
                 )
 
@@ -401,6 +404,7 @@ def build_neighbour_relations(
                 handover_success_rate=round(ho_success, 2),
                 cio_offset_db=cio,
                 no_remove_flag=no_remove,
+                relation_id=_uuid_v7(rng),
             )
             neighbour_rows.append(nr)
             neighbours_added += 1
@@ -418,6 +422,7 @@ def build_neighbour_relations(
                     to_entity_id=other_id,
                     to_entity_type=other["entity_type"],
                     domain="mobile_ran",
+                    relationship_id=_uuid_v7(rng),
                 )
             )
 
