@@ -98,13 +98,18 @@ BATCH_SIZE_CUSTOMERS = 50_000
 BATCH_SIZE_EVENTS = 5_000
 BATCH_SIZE_NEIGHBOURS = 50_000
 
-# Environment variable for database URL
+# Environment variables for connection endpoints
 ENV_DB_URL = "PEDKAI_DATABASE_URL"
 ENV_API_URL = "PEDKAI_API_URL"
+ENV_KAFKA_BOOTSTRAP = "PEDKAI_KAFKA_BOOTSTRAP"
+ENV_KAFKA_TOPIC = "PEDKAI_KAFKA_TOPIC"
+ENV_KAFKA_STREAM_KPIS = "PEDKAI_KAFKA_STREAM_KPIS"  # Enable streaming KPI Parquet into Kafka
+ENV_KAFKA_MAX_ROWS = "PEDKAI_KAFKA_MAX_ROWS"  # Optional row cap when streaming Parquet to Kafka
 
 # Default connection strings (for local dev)
 DEFAULT_DB_URL = "postgresql://pedkai:pedkai@localhost:5432/pedkai"
 DEFAULT_API_URL = "http://localhost:8000/api/v1"
+DEFAULT_KAFKA_TOPIC = "pedkai.events"
 
 
 # ---------------------------------------------------------------------------
@@ -178,13 +183,18 @@ class LoadReport:
 # ---------------------------------------------------------------------------
 
 
-def _get_db_url() -> str:
-    """Get database URL from environment or default."""
+def _get_db_url(config: GeneratorConfig | None = None) -> str:
+    """Get database URL from config, environment, or default."""
+    # Config takes priority (e.g., --database-url or config YAML)
+    if config and config.database_url:
+        return config.database_url
     return os.environ.get(ENV_DB_URL, DEFAULT_DB_URL)
 
 
-def _get_api_url() -> str:
-    """Get API URL from environment or default."""
+def _get_api_url(config: GeneratorConfig | None = None) -> str:
+    """Get API URL from config, environment, or default."""
+    if config and config.api_url:
+        return config.api_url
     return os.environ.get(ENV_API_URL, DEFAULT_API_URL)
 
 
@@ -227,6 +237,186 @@ def _check_api_connection() -> tuple[bool, str]:
         return False, "httpx not installed — API loading unavailable"
     except Exception as e:
         return False, f"API connection failed: {e}"
+
+
+def _kafka_producer() -> tuple[bool, str, Any]:
+    """Create a Kafka producer if configured.
+
+    Returns (success, topic_or_message, producer).
+    """
+    try:
+        from kafka import KafkaProducer
+    except ImportError:
+        return False, "kafka-python not installed — Kafka loading unavailable", None
+
+    brokers = os.environ.get(ENV_KAFKA_BOOTSTRAP)
+    if not brokers:
+        return False, "PEDKAI_KAFKA_BOOTSTRAP not set", None
+
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=brokers.split(","),
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        )
+        topic = os.environ.get(ENV_KAFKA_TOPIC, DEFAULT_KAFKA_TOPIC)
+        return True, topic, producer
+    except Exception as e:
+        return False, f"Kafka producer creation failed: {e}", None
+
+
+# ---------------------------------------------------------------------------
+# Kafka loader (optional mode — stream events into Kafka for live-ingest testing)
+# ---------------------------------------------------------------------------
+
+
+def _kafka_load_parquet(
+    filepath: Path,
+    topic: str,
+    producer: Any,
+    batch_size: int,
+    report: LoadReport,
+    max_rows: int | None = None,
+) -> None:
+    """Publish a Parquet file to Kafka topic in batches.
+
+    Useful for streaming KPI data into a Kafka topic for downstream ingestion.
+
+    max_rows: if set, limits the number of rows sent (useful for testing).
+    """
+    stats = LoadStats(
+        table_name=topic,
+        source_file=filepath.name,
+        mode="kafka",
+    )
+    t0 = time.time()
+
+    if not filepath.exists():
+        stats.rows_skipped = -1
+        stats.elapsed_seconds = time.time() - t0
+        console.print(f"  [dim]⊘ {filepath.name} — not found, skipping[/dim]")
+        report.stats.append(stats)
+        return
+
+    try:
+        df = pl.read_parquet(filepath)
+        total_rows = df.height
+        if max_rows is not None and max_rows < total_rows:
+            total_rows = max_rows
+
+        batch_num = 0
+        sent = 0
+
+        for offset in range(0, total_rows, batch_size):
+            batch_num += 1
+            batch_df = df.slice(offset, batch_size)
+            batch_rows = batch_df.to_dicts()
+
+            # Normalize datetimes to ISO
+            for row in batch_rows:
+                for key, val in row.items():
+                    if hasattr(val, "isoformat"):
+                        row[key] = val.isoformat()
+
+            for row in batch_rows:
+                if max_rows is not None and sent >= max_rows:
+                    break
+                producer.send(topic, row)
+                sent += 1
+
+            producer.flush()
+            stats.rows_loaded = sent
+            stats.batches = batch_num
+
+            if batch_num % 20 == 0:
+                console.print(
+                    f"    [dim]batch {batch_num}: {stats.rows_loaded:,} rows sent to Kafka ({topic})[/dim]"
+                )
+
+            if max_rows is not None and sent >= max_rows:
+                break
+
+        del df
+        gc.collect()
+
+        stats.elapsed_seconds = time.time() - t0
+        rps = stats.rows_per_second
+        console.print(
+            f"  [green]✓[/green] {filepath.name} → Kafka {topic}: "
+            f"{stats.rows_loaded:,} rows in {stats.batches} batches "
+            f"({rps:,.0f} rows/s) "
+            f"[dim]{stats.elapsed_seconds:.1f}s[/dim]"
+        )
+
+    except Exception as e:
+        stats.rows_failed = stats.rows_loaded + 1
+        stats.elapsed_seconds = time.time() - t0
+        err = f"Kafka load failed for {filepath.name}: {e}"
+        console.print(f"  [red]✗[/red] {err}")
+        report.errors.append(err)
+
+    report.stats.append(stats)
+    stats = LoadStats(
+        table_name="events_alarms",
+        source_file=filepath.name,
+        mode="kafka",
+    )
+    t0 = time.time()
+
+    if not filepath.exists():
+        stats.rows_skipped = -1
+        stats.elapsed_seconds = time.time() - t0
+        console.print(f"  [dim]⊘ {filepath.name} — not found, skipping[/dim]")
+        report.stats.append(stats)
+        return
+
+    try:
+        df = pl.read_parquet(filepath)
+        total_rows = df.height
+        batch_num = 0
+
+        for offset in range(0, total_rows, batch_size):
+            batch_num += 1
+            batch_df = df.slice(offset, batch_size)
+            batch_rows = batch_df.to_dicts()
+
+            # Normalize datetimes to ISO
+            for row in batch_rows:
+                for key, val in row.items():
+                    if hasattr(val, "isoformat"):
+                        row[key] = val.isoformat()
+
+            for row in batch_rows:
+                producer.send(topic, row)
+
+            producer.flush()
+            stats.rows_loaded += len(batch_rows)
+            stats.batches = batch_num
+
+            if batch_num % 20 == 0:
+                console.print(
+                    f"    [dim]batch {batch_num}: {stats.rows_loaded:,} events sent[/dim]"
+                )
+
+        del df
+        gc.collect()
+
+        stats.elapsed_seconds = time.time() - t0
+        rps = stats.rows_per_second
+        console.print(
+            f"  [green]✓[/green] {filepath.name} → Kafka {topic}: "
+            f"{stats.rows_loaded:,} rows in {stats.batches} batches "
+            f"({rps:,.0f} rows/s) "
+            f"[dim]{stats.elapsed_seconds:.1f}s[/dim]"
+        )
+
+    except Exception as e:
+        stats.rows_failed = stats.rows_loaded + 1
+        stats.elapsed_seconds = time.time() - t0
+        err = f"Kafka load failed for {filepath.name}: {e}"
+        console.print(f"  [red]✗[/red] {err}")
+        report.errors.append(err)
+
+    report.stats.append(stats)
 
 
 # ---------------------------------------------------------------------------
@@ -656,12 +846,12 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
     validation_dir = config.paths.validation_dir
 
     # ── Determine load mode ───────────────────────────────────
-    db_url = _get_db_url()
-    api_url = _get_api_url()
+    db_url = _get_db_url(config)
+    api_url = _get_api_url(config)
 
     # Check if we should attempt real connections
-    db_configured = ENV_DB_URL in os.environ
-    api_configured = ENV_API_URL in os.environ
+    db_configured = bool(config.database_url or (ENV_DB_URL in os.environ))
+    api_configured = bool(config.api_url or (ENV_API_URL in os.environ))
 
     db_available = False
     api_available = False
@@ -678,8 +868,34 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
     else:
         console.print(f"  [dim]API: not configured (set {ENV_API_URL} to enable)[/dim]")
 
+    # Kafka streaming support (for events/alarms and optionally KPI metrics)
+    kafka_enabled, kafka_topic, kafka_producer = _kafka_producer()
+    kafka_stream_kpis = os.environ.get(ENV_KAFKA_STREAM_KPIS, "0").lower() in ("1", "true", "yes")
+    kafka_max_rows = int(os.environ.get(ENV_KAFKA_MAX_ROWS, "0") or 0)
+
+    if kafka_enabled:
+        console.print(f"  Kafka: enabled (topic={kafka_topic})")
+        if kafka_stream_kpis:
+            console.print(
+                "  Kafka KPI streaming: enabled (will stream KPI parquet rows)"
+                + (f" (max_rows={kafka_max_rows})" if kafka_max_rows else "")
+            )
+    else:
+        console.print(f"  [dim]Kafka: not enabled (set {ENV_KAFKA_BOOTSTRAP} to enable)[/dim]")
+
+    # KPI -> Kafka topic mapping (only used if kafka_stream_kpis==True)
+    kpi_topic_map: dict[str, str] = {
+        "kpi_radio_wide": "RAN",
+        "kpi_transport_wide": "Transmission",
+        "kpi_fixed_bb_wide": "FixedBroadband",
+        "kpi_core_wide": "Core",
+        "kpi_enterprise_wide": "CustomerService",
+    }
+
     # Determine effective mode
-    if db_available:
+    if kafka_enabled:
+        effective_mode = "kafka"
+    elif db_available:
         effective_mode = "database"
     elif api_available:
         effective_mode = "api_only"
@@ -687,6 +903,7 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
         effective_mode = "dry_run"
 
     mode_descriptions = {
+        "kafka": "Kafka streaming (events) + optional DB/API fallback",
         "database": "Database loading (PostgreSQL) + API for events",
         "api_only": "API loading only (events/alarms)",
         "dry_run": "Dry run — validating files, no actual loading",
@@ -749,9 +966,24 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
             # KPI files — always register as external datasets
             _register_kpi_file(filepath, table_name, report)
 
+            # Optionally stream KPI files into Kafka (simulate live traffic)
+            if kafka_enabled and kafka_stream_kpis and table_name in kpi_topic_map:
+                kafka_topic = kpi_topic_map[table_name]
+                kafka_batch = batch_size or 5_000
+                _kafka_load_parquet(
+                    filepath,
+                    kafka_topic,
+                    kafka_producer,
+                    kafka_batch,
+                    report,
+                    max_rows=kafka_max_rows if kafka_max_rows > 0 else None,
+                )
+
         elif load_mode == "api":
-            # Events — prefer API if available, fall back to DB or dry-run
-            if api_available:
+            # Events — prefer Kafka if enabled, else API (or DB fallback)
+            if kafka_enabled:
+                _kafka_load_events(filepath, kafka_topic, kafka_producer, batch_size, report)
+            elif api_available:
                 _api_load_events(filepath, api_url, batch_size, report)
             elif db_available:
                 _db_load_parquet(
@@ -778,6 +1010,11 @@ def load_into_pedkai(config: GeneratorConfig) -> None:
                 )
             else:
                 _dry_run_load_parquet_batched(filepath, table_name, batch_size, report)
+
+    # Close Kafka producer if used
+    if kafka_enabled and kafka_producer is not None:
+        kafka_producer.flush()
+        kafka_producer.close()
 
     # ── Save load report ──────────────────────────────────────
     report.total_elapsed = time.time() - step_start

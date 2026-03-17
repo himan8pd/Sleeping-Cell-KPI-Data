@@ -525,6 +525,10 @@ class GeneratorConfig:
     # Output paths
     paths: OutputPathConfig = field(default_factory=OutputPathConfig)
 
+    # Database / API endpoints (override via config file or env vars)
+    database_url: str | None = None
+    api_url: str | None = None
+
     # Vendor split (fraction of sites assigned to Ericsson vs Nokia)
     ericsson_fraction: float = 0.55
     nokia_fraction: float = 0.45
@@ -553,6 +557,10 @@ class GeneratorConfig:
             config.global_seed = int(d["global_seed"])
         if "tenant_id" in d:
             config.tenant_id = str(d["tenant_id"])
+        if "database_url" in d:
+            config.database_url = str(d["database_url"])
+        if "api_url" in d:
+            config.api_url = str(d["api_url"])
         if "ericsson_fraction" in d:
             config.ericsson_fraction = float(d["ericsson_fraction"])
             config.nokia_fraction = 1.0 - config.ericsson_fraction

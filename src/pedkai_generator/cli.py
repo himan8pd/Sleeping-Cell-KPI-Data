@@ -340,6 +340,18 @@ def main():
 @click.option("--seed", type=int, default=None, help="Override global seed.")
 @click.option("--tenant-id", type=str, default=None, help="Override tenant ID.")
 @click.option(
+    "--database-url",
+    type=str,
+    default=None,
+    help="Override Pedkai database URL (Postgres) for loading metadata.",
+)
+@click.option(
+    "--api-url",
+    type=str,
+    default=None,
+    help="Override Pedkai API base URL (for events/alarms ingestion).",
+)
+@click.option(
     "--data-store",
     type=click.Path(path_type=Path),
     default=None,
@@ -369,6 +381,8 @@ def run(
     config_file: Path | None,
     seed: int | None,
     tenant_id: str | None,
+    database_url: str | None,
+    api_url: str | None,
     data_store: Path | None,
     skip_existing: bool,
     force: bool,
@@ -393,6 +407,10 @@ def run(
         config.paths.data_store_root = data_store
     if days is not None:
         config.simulation.simulation_days = days
+    if database_url is not None:
+        config.database_url = database_url
+    if api_url is not None:
+        config.api_url = api_url
 
     # ── Determine which steps to run ─────────────────────────
     if run_all:

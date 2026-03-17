@@ -642,6 +642,18 @@ pedkai-generate run --step 3 --seed 12345 --days 7 --data-store /tmp/output
 # Run Phase 12 (Abeyance Memory) standalone — entity pool falls back to synthetics
 pedkai-generate run --step 12
 
+# To actually load into databases (not dry-run), set the database/API URLs.
+export PEDKAI_DATABASE_URL="postgresql://user:pass@host:5432/pedkai"
+export PEDKAI_API_URL="http://host:8000/api/v1"
+
+# Stream KPI events into Kafka (live-ingest simulation)
+# Requires Kafka accessible and topics configured (e.g., RAN, Transmission, FixedBroadband, Core, CustomerService)
+export PEDKAI_KAFKA_BOOTSTRAP="localhost:9092"
+export PEDKAI_KAFKA_TOPIC="pedkai.events"  # used for events/alarms
+export PEDKAI_KAFKA_STREAM_KPIS=1       # enable KPI Parquet streaming too
+export PEDKAI_KAFKA_MAX_ROWS=100000     # optional cap for testing
+pedkai-generate run --step 12 --config-file my_config.yaml
+
 # Use a custom config file
 pedkai-generate run --all --config-file my_config.yaml
 ```
