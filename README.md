@@ -596,7 +596,14 @@ pedkai-generate steps
 - Python ≥ 3.11
 - ~16 GB RAM (streaming architecture keeps peak at ~200 MB, but downstream consumers may need more)
 - ~15 GB disk space for full output
-- External volume at `/Volumes/Projects/Pedkai Data Store/` (or override with `--data-store`)
+- A writable output directory for generated data.
+
+  By default the generator attempts to use `/Volumes/Projects/Pedkai Data Store/`.
+  If that path does not exist (or is not writable), you must override it via either:
+
+  - **CLI option:** `--data-store /path/to/output`
+  - **Environment variable:** `PEDKAI_DATA_STORE=/path/to/output`
+  - **Config file:** set `data_store_root: /path/to/output` in your YAML config
 
 ---
 

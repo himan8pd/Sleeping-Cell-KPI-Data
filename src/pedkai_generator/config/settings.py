@@ -438,7 +438,31 @@ DENSITY_DEPLOYMENT_WEIGHTS: dict[str, dict[DeploymentProfile, float]] = {
 class OutputPathConfig:
     """Where generated data lands."""
 
-    data_store_root: Path = field(default_factory=lambda: Path("/Volumes/Projects/Pedkai Data Store"))
+    data_store_root: Path = field(default_factory=lambda: OutputPathConfig._default_data_store_root())
+
+    @staticmethod
+    def _default_data_store_root() -> Path:
+        """Resolve a sensible default data store root.
+
+        Priority:
+          1. PEDKAI_DATA_STORE env var
+          2. /Volumes/Projects/Pedkai Data Store (macOS default)
+          3. ./pedkai_data_store (local fallback)
+        """
+        import os
+
+        # 1) Allow explicit override via env var
+        env = os.environ.get("PEDKAI_DATA_STORE")
+        if env:
+            return Path(env)
+
+        # 2) Preferred default path (macOS-style volume)
+        default = Path("/Volumes/Projects/Pedkai Data Store")
+        if default.exists() and os.access(default, os.W_OK):
+            return default
+
+        # 3) Safe local fallback
+        return Path.cwd() / "pedkai_data_store"
 
     @property
     def output_dir(self) -> Path:
@@ -454,9 +478,16 @@ class OutputPathConfig:
 
     def ensure_dirs(self) -> None:
         """Create all output directories if they don't exist."""
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.intermediate_dir.mkdir(parents=True, exist_ok=True)
-        self.validation_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            self.intermediate_dir.mkdir(parents=True, exist_ok=True)
+            self.validation_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            raise PermissionError(
+                f"Unable to create output directories under {self.output_dir!r}. "
+                f"Please set PEDKAI_DATA_STORE or use --data-store to point to a writable directory. "
+                f"Original error: {e}"
+            )
 
 
 # ---------------------------------------------------------------------------
