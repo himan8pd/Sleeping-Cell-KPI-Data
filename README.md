@@ -2,7 +2,7 @@
 
 A UK-scale converged telecom operator dataset generator for [Pedkai](https://github.com/your-org/pedkai) — producing radio-layer physics, multi-domain KPIs, scenario injection, and CMDB degradation data for Dark Graph training and ML model development.
 
-> **Origin:** This repo was originally [Sleeping-Cell-KPI-Data](https://github.com/adityonugrohoid/telecom-digital-twin) (3 CSV files of sleeping cell KPIs). It has been repurposed as the synthetic data generation pipeline for the Pedkai platform. The original CSV files are preserved in the repo root for reference.
+> **Origin:** This repo was forked from [Sleeping-Cell-KPI-Data](https://github.com/adityonugrohoid/telecom-digital-twin) (3 CSV files of sleeping cell KPIs) and later renamed to `pedkai_generator` once its scope outgrew the original. The original CSV files are preserved in the repo root for reference.
 
 ---
 
@@ -514,7 +514,7 @@ This helper is present in every generator module. `uuid.uuid4()` is fully absent
 ## Project Structure
 
 ```
-Sleeping-Cell-KPI-Data/
+pedkai_generator/
 ├── README.md                                    ← This file
 ├── THREAD_SUMMARY_SYNTHETIC_DATA_GENERATOR.md   ← Full design context (878 lines)
 ├── pyproject.toml                               ← Package config, dependencies, CLI entrypoint
@@ -576,8 +576,8 @@ Sleeping-Cell-KPI-Data/
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-org/Sleeping-Cell-KPI-Data.git
-cd Sleeping-Cell-KPI-Data
+git clone https://github.com/himan8pd/pedkai_generator.git
+cd pedkai_generator
 
 # Create virtual environment
 python3.11 -m venv .venv
